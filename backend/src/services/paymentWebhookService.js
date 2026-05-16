@@ -17,9 +17,10 @@ function extractBillingId(event) {
   const data = event?.data ?? event
   return (
     data?.id ??
+    data?.transparent?.id ??
     data?.billing?.id ??
     data?.checkout?.id ??
-    data?.transparent?.id ??
+    data?.metadata?.virlaBillingId ??
     event?.billing?.id ??
     null
   )
@@ -47,12 +48,17 @@ export async function processPaymentEvent(event) {
   }
 
   const paymentResult = await prisma.payment.updateMany({
-    where: { billingId, status: { not: 'PAID' } },
+    where: {
+      status: { not: 'PAID' },
+      OR: [{ billingId }, { gatewayBillingId: billingId }],
+    },
     data: { status: 'PAID', paidAt: new Date() },
   })
 
   if (paymentResult.count === 0) {
-    const existing = await prisma.payment.findUnique({ where: { billingId } })
+    const existing = await prisma.payment.findFirst({
+      where: { OR: [{ billingId }, { gatewayBillingId: billingId }] },
+    })
     if (!existing) {
       console.error(`[webhook] Pagamento "${billingId}" não encontrado no banco.`)
       return { handled: false, billingId }
@@ -62,8 +68,8 @@ export async function processPaymentEvent(event) {
     console.info(`[webhook] Pagamento "${billingId}" marcado como PAID.`)
   }
 
-  const payment = await prisma.payment.findUnique({
-    where: { billingId },
+  const payment = await prisma.payment.findFirst({
+    where: { OR: [{ billingId }, { gatewayBillingId: billingId }] },
     include: { escrow: true },
   })
 

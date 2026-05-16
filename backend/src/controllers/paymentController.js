@@ -78,6 +78,7 @@ export const initiateBilling = async (req, res) => {
       const paymentRecord = await tx.payment.create({
         data: {
           billingId: billing.billingId,
+          gatewayBillingId: billing.gatewayBillingId ?? null,
           userId,
           amount: amountCheck.amount,
           status: 'PENDING',
@@ -97,10 +98,12 @@ export const initiateBilling = async (req, res) => {
 
     return res.status(201).json({
       billingId: billing.billingId,
+      gatewayBillingId: billing.gatewayBillingId ?? null,
       pixCode: billing.pixCode,
       qrCodeBase64: billing.qrCodeBase64,
       checkoutUrl: billing.checkoutUrl,
       status: billing.status,
+      devMode: billing.devMode ?? false,
       escrowId: escrow.id,
       escrowStatus: escrow.status,
       paymentId: payment.id,

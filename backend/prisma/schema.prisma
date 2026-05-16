@@ -92,9 +92,10 @@ model Message {
 }
 
 model Payment {
-  id        String    @id @default(auto()) @map("_id") @db.ObjectId
-  billingId String    @unique
-  userId    String    @db.ObjectId
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  billingId        String    @unique
+  gatewayBillingId String?
+  userId           String    @db.ObjectId
   amount    Int
   status    String    @default("PENDING") // PENDING | PAID | EXPIRED | CANCELED
   paidAt    DateTime?
