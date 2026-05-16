@@ -1,0 +1,31 @@
+{
+  "name": "virla-backend",
+  "version": "1.0.0",
+  "description": "API Virla Experimental",
+  "main": "server.js",
+  "scripts": {
+    "prestart": "node scripts/check-deps.js",
+    "start": "node server.js",
+    "predev": "node scripts/check-deps.js",
+    "dev": "nodemon server.js",
+    "postinstall": "node scripts/check-deps.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@prisma/client": "6.19",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "prisma": "6.19"
+  }
+}
