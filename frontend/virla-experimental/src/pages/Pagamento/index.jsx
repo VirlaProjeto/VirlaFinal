@@ -16,6 +16,25 @@ import { ButtonSpinner, InlineSpinner } from '../../components/Spinner'
 import { maskCpf, isValidCpf } from '../../utils/validators'
 import { formatCentsBRL } from '../../utils/paymentFees'
 
+/** Aceita base64 puro ou data-URL retornada pela AbacatePay. */
+function qrImageSrc(base64) {
+  if (!base64) return ''
+  if (String(base64).startsWith('data:')) return base64
+  return `data:image/png;base64,${base64}`
+}
+
+/** Normaliza resposta do back-end / AbacatePay para o shape usado na UI. */
+function normalizeBillingResponse(data) {
+  if (!data || typeof data !== 'object') return null
+  return {
+    ...data,
+    billingId: data.billingId ?? data.id ?? null,
+    pixCode: data.pixCode || data.brCode || '',
+    qrCodeBase64: data.qrCodeBase64 || data.brCodeBase64 || '',
+    status: data.status ?? 'PENDING',
+  }
+}
+
 function StatusPill({ status }) {
   const map = {
     PENDING: { label: 'Aguardando pagamento', color: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -119,8 +138,13 @@ export default function Pagamento() {
         payeeId,
         chargeRequestId,
       })
-      setBilling(res.data)
-      setStatus(res.data.status)
+      const normalized = normalizeBillingResponse(res.data)
+      if (!normalized?.pixCode && !normalized?.qrCodeBase64) {
+        setError('PIX gerado, mas o gateway não retornou QR/código. Tente novamente ou contate o suporte.')
+        return
+      }
+      setBilling(normalized)
+      setStatus(normalized.status)
     } catch (err) {
       setError(err.response?.data?.msg ?? 'Erro ao gerar o PIX. Tente novamente.')
     } finally {
@@ -270,7 +294,7 @@ export default function Pagamento() {
                 </p>
                 <div className="p-3 rounded-2xl border-2 border-virla-roxo/15 bg-white shadow-inner">
                   <img
-                    src={`data:image/png;base64,${billing.qrCodeBase64}`}
+                    src={qrImageSrc(billing.qrCodeBase64)}
                     alt="PIX QR Code"
                     className="w-48 h-48 object-contain"
                   />

@@ -2,7 +2,28 @@ import prisma from '../lib/prisma.js'
 import { holdEscrowFunds } from './escrowService.js'
 import { markChargePaidForPayment } from './chargeRequestService.js'
 
-const PAID_EVENT_TYPES = new Set(['BILLING.PAID', 'billing.paid', 'PAID'])
+const PAID_EVENT_TYPES = new Set([
+  'BILLING.PAID',
+  'billing.paid',
+  'PAID',
+  'checkout.completed',
+  'transparent.completed',
+  'pix.paid',
+  'PIX.PAID',
+])
+
+/** Extrai o ID da cobrança (bill_*, pix_char_*, char_*, etc.) do payload do webhook. */
+function extractBillingId(event) {
+  const data = event?.data ?? event
+  return (
+    data?.id ??
+    data?.billing?.id ??
+    data?.checkout?.id ??
+    data?.transparent?.id ??
+    event?.billing?.id ??
+    null
+  )
+}
 
 /**
  * Processa evento do AbacatePay de forma síncrona (antes do HTTP 200).
@@ -13,8 +34,7 @@ const PAID_EVENT_TYPES = new Set(['BILLING.PAID', 'billing.paid', 'PAID'])
  */
 export async function processPaymentEvent(event) {
   const eventType = event?.event ?? event?.type ?? ''
-  const billing = event?.data ?? event?.billing ?? event
-  const billingId = billing?.id
+  const billingId = extractBillingId(event)
 
   if (!PAID_EVENT_TYPES.has(eventType)) {
     console.info(`[webhook] Evento ignorado: "${eventType}"`)

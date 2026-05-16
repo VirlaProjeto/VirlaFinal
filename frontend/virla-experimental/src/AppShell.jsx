@@ -7,6 +7,7 @@ import Perfil from './pages/Perfil'
 import Chat from './pages/Chat'
 import Landing from './pages/Landing'
 import Pagamento from './pages/Pagamento'
+import PagamentoSucesso from './pages/Pagamento/Sucesso'
 import Menu from './components/Menu'
 import User from './pages/User'
 
@@ -29,6 +30,7 @@ export default function AppShell() {
         <Route path="/chat/:userId" element={<Chat />} />
         <Route path="/user/:userId" element={<User />} />
         <Route path="/pagamento" element={<Pagamento />} />
+        <Route path="/pagamento/sucesso" element={<PagamentoSucesso />} />
       </Routes>
     </>
   )
