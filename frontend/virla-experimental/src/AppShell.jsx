@@ -23,7 +23,6 @@ export default function AppShell() {
     <>
       <Toaster position="top-right" richColors />
       {showMenu && <Menu />}
-      <Route path="*" element={<NotFound />} />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/home" element={<Home />} />
@@ -35,6 +34,7 @@ export default function AppShell() {
         <Route path="/user/:userId" element={<User />} />
         <Route path="/pagamento" element={<Pagamento />} />
         <Route path="/pagamento/sucesso" element={<PagamentoSucesso />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </>
   )
