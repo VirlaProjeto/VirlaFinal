@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Email from '@mui/icons-material/Email'
@@ -19,7 +20,7 @@ export default function LoginPage() {
     if (loading) return
     const email = inputEmail.current.value.trim()
     if (!isValidEmail(email)) {
-      alert('Informe um e-mail válido.')
+      toast.warning('Informe um e-mail válido.')
       return
     }
     setLoading(true)
@@ -37,7 +38,7 @@ export default function LoginPage() {
       navigate('/home')
     } catch (err) {
       console.error(err)
-      alert('E-mail ou senha incorretos. Tente novamente.')
+      toast.error('E-mail ou senha incorretos. Tente novamente.')
     } finally {
       setLoading(false)
     }
