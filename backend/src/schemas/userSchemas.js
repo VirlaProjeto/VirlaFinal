@@ -33,13 +33,14 @@ export const profileImageSchema = z
 
 export const createUserBodySchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório.').max(120),
-  birthDate: z.string().min(1, 'Data de nascimento é obrigatória.'),
+  birthDate: z.string().optional().nullable(),
   role: userRoleSchema,
-  bio: z.string().min(1, 'Bio é obrigatória.').max(2000),
+  bio: z.string().max(2000).optional().default(''),
   email: emailSchema,
   cpf: cpfSchema,
   password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres.').max(128),
   profileImage: profileImageSchema,
+  crm_crf: z.string().max(80).optional().nullable(),
   hourlyRate: z.union([z.number(), z.string()]).optional().nullable(),
   registerNumber: z.string().max(80).optional().nullable(),
   approach: z.string().max(200).optional().nullable(),

@@ -11,6 +11,7 @@ const USER_PUBLIC_SELECT = {
   email: true,
   cpf: true,
   profileImage: true,
+  crm_crf: true,
   registerNumber: true,
   hourlyRate: true,
   specialties: true,

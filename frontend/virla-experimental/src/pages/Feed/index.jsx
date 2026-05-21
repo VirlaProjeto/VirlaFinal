@@ -13,6 +13,7 @@ import api from '../../services/api'
 import { calculateAge } from '../../utils/dateUtils'
 import { formatHourly } from '../../utils/formatters'
 import { PageLoader, LoadingOverlay } from '../../components/Spinner'
+import VerifiedSeal from '../../components/VerifiedSeal'
 
 function RoleBadge({ role }) {
   const isCuidador = role === 'CUIDADOR'
@@ -55,7 +56,10 @@ function UserCard({ user, onOpenChat, viewerIsFamiliar, onVerMais }) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-lg text-virla-texto truncate">{user.name}</h3>
+          <h3 className="font-bold text-lg text-virla-texto truncate inline-flex items-center gap-1 max-w-full">
+            <span className="truncate">{user.name}</span>
+            <VerifiedSeal user={user} iconSize={18} />
+          </h3>
           {user.approach ? (
             <p className="text-sm text-virla-texto/55 mt-0.5 line-clamp-2">{user.approach}</p>
           ) : (

@@ -47,6 +47,7 @@ model User {
   cpf              String?
   password         String
   profileImage     String?
+  crm_crf          String?
   registerNumber   String?
   hourlyRate       Float?
   specialties      String[]  @default([])

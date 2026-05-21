@@ -15,6 +15,7 @@ import api from '../../services/api'
 import { calculateAge, formatDateBR } from '../../utils/dateUtils'
 import { formatHourly } from '../../utils/formatters'
 import { PageLoader, Spinner, InlineSpinner } from '../../components/Spinner'
+import VerifiedSeal from '../../components/VerifiedSeal'
 
 function InfoRow({ icon: Icon, label, value }) {
   return (
@@ -144,10 +145,11 @@ export default function Home() {
             <div className="flex-1 min-w-0">
               <p className="text-white/70 text-sm font-medium mb-1">Bem-vindo de volta,</p>
               <h1
-                className="text-3xl font-black tracking-tight"
+                className="text-3xl font-black tracking-tight inline-flex items-center gap-2 flex-wrap"
                 style={{ fontFamily: "'Playfair Display', serif" }}
               >
-                {userData?.name}
+                <span>{userData?.name}</span>
+                <VerifiedSeal user={userData} className="text-emerald-300" iconSize={24} />
               </h1>
               <div className="flex items-center gap-2 mt-3 flex-wrap">
                 <span className="inline-flex items-center gap-1.5 bg-white/20 rounded-full px-3 py-1 text-xs font-semibold backdrop-blur-sm">

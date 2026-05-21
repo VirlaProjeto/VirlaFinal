@@ -17,6 +17,7 @@ import api from '../../services/api'
 import { PageLoader, ButtonSpinner } from '../../components/Spinner'
 
 import GenerateChargeModal from '../../components/GenerateChargeModal'
+import VerifiedSeal from '../../components/VerifiedSeal'
 
 import { formatCentsBRL } from '../../utils/paymentFees'
 
@@ -396,7 +397,10 @@ export default function Chat() {
 
         <div className="min-w-0 flex-1">
 
-          <h1 className="font-bold text-lg truncate">{peer?.name ?? 'Conversa'}</h1>
+          <h1 className="font-bold text-lg truncate inline-flex items-center gap-1 max-w-full">
+            <span className="truncate">{peer?.name ?? 'Conversa'}</span>
+            <VerifiedSeal user={peer} iconSize={18} className="text-emerald-200" />
+          </h1>
 
           <p className="text-xs text-white/70 truncate">
 
