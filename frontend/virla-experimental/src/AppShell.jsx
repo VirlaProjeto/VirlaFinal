@@ -1,4 +1,6 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
+import { Toaster } from 'sonner'
+import NotFound from './pages/NotFound'
 import Cadastro from './pages/Cadastro'
 import Login from './pages/Login'
 import Feed from './pages/Feed'
@@ -19,7 +21,9 @@ export default function AppShell() {
 
   return (
     <>
+      <Toaster position="top-right" richColors />
       {showMenu && <Menu />}
+      <Route path="*" element={<NotFound />} />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/home" element={<Home />} />
