@@ -1,3 +1,4 @@
+import { toast } from 'sonner'
 import { useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Person from '@mui/icons-material/Person'
@@ -78,11 +79,11 @@ export default function Cadastro() {
     const cpfDigits = stripCpf(cpf)
 
     if (!isValidEmail(email)) {
-      alert('Informe um e-mail válido.')
+    toast.warning('Informe um e-mail válido.')
       return
     }
     if (!isValidCpf(cpfDigits)) {
-      alert('CPF inválido. Verifique os dígitos.')
+     toast.warning('CPF inválido. Verifique os dígitos.')
       return
     }
 
@@ -136,7 +137,7 @@ export default function Cadastro() {
       navigate('/login')
     } catch (err) {
       console.error(err)
-      alert(formatRegisterError(err))
+   toast.error(formatRegisterError(err))
     } finally {
       setSubmitting(false)
     }
