@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js'
 import { messageLogger } from '../lib/logger.js'
+import { encrypt, decrypt } from '../lib/crypto.js'
 
 /**
  * Registers all message-related Socket.io events on a connected socket.
@@ -18,9 +19,12 @@ export function registerMessageEvents(socket, io) {
     }
 
     try {
+      // Criptografa o conteúdo antes de persistir
+      const encryptedContent = encrypt(content.trim())
+
       const message = await prisma.message.create({
         data: {
-          content: content.trim(),
+          content: encryptedContent,
           senderId: userId,
           receiverId
         },
@@ -36,6 +40,9 @@ export function registerMessageEvents(socket, io) {
         metadata: { receiverId, messageId: message.id, idempotencyKey },
         timestamp: new Date().toISOString()
       })
+
+      // Descriptografa antes de enviar aos clientes para que recebam texto legível
+      message.content = decrypt(message.content)
 
       // Entrega na "sala" do destinatário
       io.to(`user:${receiverId}`).emit('receive_message', message)
