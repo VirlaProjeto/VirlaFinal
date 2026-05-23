@@ -21,19 +21,17 @@ export const sendMessage = async (req, res) => {
             return res.status(404).json({ msg: "Usuário destinatário não encontrado" })
         }
 
+        // Criando mensagem e definindo como não lida (read: false)
         const message = await prisma.message.create({
             data: {
                 content: content.trim(),
                 senderId,
                 receiverId,
+                read: false 
             },
             select: {
-                id: true,
-                content: true,
-                audioUrl: true, // <--- ADICIONADO
-                createdAt: true,
-                senderId: true,
-                receiverId: true,
+                id: true, content: true, audioUrl: true, createdAt: true,
+                senderId: true, receiverId: true, read: true
             },
         })
 
@@ -44,42 +42,27 @@ export const sendMessage = async (req, res) => {
     }
 }
 
-/** NOVO: POST para enviar áudios */
+/** POST para enviar áudios */
 export const sendAudioMessage = async (req, res) => {
     try {
         const { receiverId } = req.body
         const senderId = req.userId
-        const file = req.file // O Multer coloca o arquivo aqui
+        const file = req.file
 
-        if (!file) {
-            return res.status(400).json({ msg: "Nenhum ficheiro de áudio recebido" })
-        }
-        if (!receiverId) {
-            return res.status(422).json({ msg: "Destinatário é obrigatório" })
-        }
-
-        const receiver = await prisma.user.findUnique({ where: { id: receiverId } })
-        if (!receiver) {
-            return res.status(404).json({ msg: "Usuário destinatário não encontrado" })
-        }
-
-        // Criamos o caminho relativo para salvar no banco
-        const audioUrl = `/uploads/${file.filename}`
+        if (!file) return res.status(400).json({ msg: "Nenhum arquivo de áudio" })
+        if (!receiverId) return res.status(422).json({ msg: "Destinatário é obrigatório" })
 
         const message = await prisma.message.create({
             data: {
-                content: "🎵 Mensagem de Áudio", // Um texto amigável para aparecer nas notificações
-                audioUrl,
+                content: "🎵 Mensagem de Áudio",
+                audioUrl: `/uploads/${file.filename}`,
                 senderId,
                 receiverId,
+                read: false // Áudio novo também é não lido
             },
             select: {
-                id: true,
-                content: true,
-                audioUrl: true,
-                createdAt: true,
-                senderId: true,
-                receiverId: true,
+                id: true, content: true, audioUrl: true, createdAt: true,
+                senderId: true, receiverId: true, read: true
             },
         })
 
@@ -90,26 +73,17 @@ export const sendAudioMessage = async (req, res) => {
     }
 }
 
-/** Full history between authenticated user and :userId (chronological) */
+/** Histórico completo entre usuário e :userId */
 export const getMessageHistory = async (req, res) => {
     try {
         const me = req.userId
         const otherId = req.params.userId
 
-        if (!otherId) {
-            return res.status(400).json({ msg: "Usuário inválido" })
-        }
-        if (otherId === me) {
-            return res.status(400).json({ msg: "Conversa inválida" })
-        }
-
         const other = await prisma.user.findUnique({
             where: { id: otherId },
             select: { id: true, name: true, role: true, profileImage: true, approach: true },
         })
-        if (!other) {
-            return res.status(404).json({ msg: "Usuário não encontrado" })
-        }
+        if (!other) return res.status(404).json({ msg: "Usuário não encontrado" })
 
         const messages = await prisma.message.findMany({
             where: {
@@ -120,36 +94,23 @@ export const getMessageHistory = async (req, res) => {
             },
             orderBy: { createdAt: "asc" },
             select: {
-                id: true,
-                content: true,
-                audioUrl: true, // <--- ADICIONADO
-                createdAt: true,
-                senderId: true,
-                receiverId: true,
+                id: true, content: true, audioUrl: true, createdAt: true,
+                senderId: true, receiverId: true, read: true
             },
         })
 
         res.status(200).json({ peer: other, messages })
     } catch (e) {
-        console.error(e)
-        const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
-        res.status(dbDown ? 503 : 500).json({
-            msg: dbDown
-                ? 'Não foi possível conectar ao banco de dados. Verifique internet e DATABASE_URL no .env.'
-                : 'Erro ao buscar mensagens',
-        })
+        res.status(500).json({ msg: "Erro ao buscar mensagens" })
     }
 }
 
-/** Recent conversations for dashboard */
+/** Lista conversas recentes para o dashboard */
 export const getConversations = async (req, res) => {
     try {
         const me = req.userId
-
         const recent = await prisma.message.findMany({
-            where: {
-                OR: [{ senderId: me }, { receiverId: me }],
-            },
+            where: { OR: [{ senderId: me }, { receiverId: me }] },
             orderBy: { createdAt: "desc" },
             take: 400,
             include: {
@@ -162,27 +123,42 @@ export const getConversations = async (req, res) => {
         for (const m of recent) {
             const peerId = m.senderId === me ? m.receiverId : m.senderId
             if (byPeer.has(peerId)) continue
-            const peerName = m.senderId === me ? m.receiver.name : m.sender.name
             byPeer.set(peerId, {
                 peerId,
-                peerName,
+                peerName: m.senderId === me ? m.receiver.name : m.sender.name,
                 lastMessage: m.content,
                 lastMessageAt: m.createdAt,
             })
         }
 
-        const conversations = [...byPeer.values()].sort(
-            (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
-        )
-
-        res.status(200).json({ conversations })
+        res.status(200).json({ conversations: [...byPeer.values()] })
     } catch (e) {
-        console.error(e)
-        const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
-        res.status(dbDown ? 503 : 500).json({
-            msg: dbDown
-                ? 'Não foi possível conectar ao banco de dados. Verifique internet e DATABASE_URL no .env.'
-                : 'Erro ao listar conversas',
+        res.status(500).json({ msg: "Erro ao listar conversas" })
+    }
+}
+
+/** Contar mensagens não lidas */
+export const getUnreadCount = async (req, res) => {
+    try {
+        const count = await prisma.message.count({
+            where: { receiverId: req.userId, read: false }
         })
+        res.status(200).json({ count })
+    } catch (e) {
+        res.status(500).json({ msg: "Erro ao buscar notificações" })
+    }
+}
+
+/** Marcar mensagens de um usuário como lidas */
+export const markAsRead = async (req, res) => {
+    try {
+        const { userId } = req.params
+        await prisma.message.updateMany({
+            where: { senderId: userId, receiverId: req.userId, read: false },
+            data: { read: true }
+        })
+        res.status(200).json({ msg: "Mensagens lidas" })
+    } catch (e) {
+        res.status(500).json({ msg: "Erro ao marcar como lida" })
     }
 }

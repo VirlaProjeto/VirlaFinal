@@ -14,4 +14,8 @@ router.post("/messages/audio", checkToken, upload.single("audio"), sendAudioMess
 router.get("/messages/history/:userId", checkToken, getMessageHistory)
 router.get("/conversations", checkToken, getConversations)
 
+// Rotas de notificação
+router.get("/messages/unread-count", checkToken, getUnreadCount)
+router.patch("/messages/read/:userId", checkToken, markAsRead)
+
 export default router

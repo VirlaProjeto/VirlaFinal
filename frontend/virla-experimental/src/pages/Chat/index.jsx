@@ -45,6 +45,13 @@ export default function Chat() {
 
   const { isRecording, startRecording, stopRecording, audioBlob, clearAudio } = useAudioRecorder()
 
+  // --- NOVO: ZERA A CONTAGEM AO ENTRAR NA CONVERSA ---
+  useEffect(() => {
+    if (peerId) {
+      api.patch(`/messages/read/${peerId}`).catch(err => console.error("Erro ao marcar lidas", err))
+    }
+  }, [peerId])
+
   const scrollToBottom = useCallback(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
@@ -146,7 +153,6 @@ export default function Chat() {
     if (isTyping) setTimeout(() => setPeerTyping(false), 3000)
   }, [])
 
-  // CORREÇÃO AQUI: Trouxe o "socket" para podermos emitir o aviso de áudio
   const { socket, sendMessage, emitTyping, emitRead, isConnected } = useSocket({
     peerId,
     onMessage: handleIncomingMessage,
@@ -165,7 +171,6 @@ export default function Chat() {
   const handleSend = useCallback(async (e) => {
     e.preventDefault()
     
-    // --- LÓGICA DE ÁUDIO (ENVIO REAL) ---
     if (audioBlob) {
       setSending(true)
       try {
@@ -173,9 +178,8 @@ export default function Chat() {
         formData.append('audio', audioBlob, 'gravacao.webm')
         formData.append('receiverId', peerId)
 
-        const res = await api.post('/messages/audio', formData, {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        })
+        // --- CORREÇÃO: RETIREI O HEADER QUE ESTAVA CAUSANDO ERRO ---
+        const res = await api.post('/messages/audio', formData)
 
         const novaMensagem = res.data.message
         
@@ -192,7 +196,6 @@ export default function Chat() {
       return
     }
 
-    // --- LÓGICA DE TEXTO ---
     const text = input.trim()
     if (!text || sending) return
 
@@ -329,7 +332,6 @@ export default function Chat() {
                   ${m._optimistic ? 'opacity-60' : 'opacity-100'}
                 `}
               >
-                {/* CORREÇÃO AQUI: O áudio agora aponta para o servidor! */}
                 {m.audioUrl ? (
                   <audio src={`${API_URL}${m.audioUrl}`} controls className="max-w-full h-10 mt-1 rounded" />
                 ) : (

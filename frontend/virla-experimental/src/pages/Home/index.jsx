@@ -49,6 +49,23 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [conversations, setConversations] = useState([])
   const [convLoading, setConvLoading] = useState(false)
+  
+  // --- ESTADO DO CONTADOR DE NÃO LIDAS ---
+  const [unreadCount, setUnreadCount] = useState(0)
+
+  // --- BUSCAR CONTADOR DE NÃO LIDAS ---
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const res = await api.get('/messages/unread-count')
+      setUnreadCount(res.data.count)
+    } catch (err) { console.error(err) }
+  }, [])
+
+  useEffect(() => {
+    fetchUnreadCount()
+    const interval = setInterval(fetchUnreadCount, 10000)
+    return () => clearInterval(interval)
+  }, [fetchUnreadCount])
 
   useEffect(() => {
     const token = localStorage.getItem('meuToken')
@@ -194,10 +211,12 @@ export default function Home() {
           >
             Painel
           </button>
+          
+          {/* --- BOTÃO MENSAGENS COM A BOLINHA VERMELHA --- */}
           <button
             type="button"
             onClick={() => selectTab('mensagens')}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 inline-flex items-center gap-2
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 inline-flex items-center gap-2 relative
               ${
                 activeTab === 'mensagens'
                   ? 'bg-virla-roxo text-white shadow-md'
@@ -206,6 +225,11 @@ export default function Home() {
           >
             <Chat sx={{ fontSize: 18 }} />
             Mensagens
+            {unreadCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full h-5 w-5 flex items-center justify-center shadow-md">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
         </div>
 
