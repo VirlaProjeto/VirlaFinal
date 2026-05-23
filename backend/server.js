@@ -21,21 +21,26 @@ const __dirname = path.dirname(__filename)
 
 const PORT = process.env.PORT || 3002
 
-const ALLOWED_ORIGINS = [
-  'http://localhost:5173',   // Vite dev
-  'http://localhost:3000',
-  process.env.FRONTEND_URL   // Production — set in .env
-].filter(Boolean)
+// Limpa a URL de produção, removendo qualquer barra acidental no final
+const productionOrigin = process.env.FRONTEND_URL 
+  ? process.env.FRONTEND_URL.replace(/\/$/, '') 
+  : null;
 
-// ─── Express app ────────────────────────────────────────────────
-const app = express()
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',  // Vite dev
+  'http://localhost:3000',
+  productionOrigin          // Production limpo
+].filter(Boolean);
+
+// --- Express app
+const app = express();
 
 app.use(cors({
   origin: ALLOWED_ORIGINS,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}))
+}));
 
 app.use(express.json({ limit: '4mb' }))
 
