@@ -1,5 +1,7 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { Toaster } from 'sonner'
+import { SocketProvider } from './context/SocketContext' 
+
 import NotFound from './pages/NotFound'
 import Cadastro from './pages/Cadastro'
 import Login from './pages/Login'
@@ -20,7 +22,7 @@ export default function AppShell() {
   const showMenu = !HIDDEN_MENU_ROUTES.includes(location.pathname)
 
   return (
-    <>
+    <SocketProvider>
       <Toaster position="top-right" richColors />
       {showMenu && <Menu />}
       <Routes>
@@ -36,6 +38,6 @@ export default function AppShell() {
         <Route path="/pagamento/sucesso" element={<PagamentoSucesso />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </>
+    </SocketProvider>
   )
 }
