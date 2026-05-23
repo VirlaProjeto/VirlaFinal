@@ -21,24 +21,36 @@ const __dirname = path.dirname(__filename)
 
 const PORT = process.env.PORT || 3002
 
-// Limpa a URL de produção, removendo qualquer barra acidental no final
-const productionOrigin = process.env.FRONTEND_URL 
-  ? process.env.FRONTEND_URL.replace(/\/$/, '') 
-  : null;
-
-const ALLOWED_ORIGINS = [
+// --- Configuração "Cadeado Mestre" do CORS ---
+const allowedOrigins = [
   'http://localhost:5173',  // Vite dev
   'http://localhost:3000',
-  productionOrigin          // Production limpo
-].filter(Boolean);
+  'https://virla-app.onrender.com' // <-- A nossa garantia de que a nuvem vai funcionar
+];
+
+// Injeta a variável de ambiente limpando espaços (trim) e barras no final
+if (process.env.FRONTEND_URL) {
+  allowedOrigins.push(process.env.FRONTEND_URL.trim().replace(/\/$/, ''));
+}
 
 // --- Express app
 const app = express();
 
 app.use(cors({
-  origin: ALLOWED_ORIGINS,
+  origin: function (origin, callback) {
+    // Permite conexões sem origin (como testes no Postman)
+    if (!origin) return callback(null, true);
+    
+    // Se a origem estiver na nossa lista segura, deixa passar
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Se não estiver, barra e avisa o motivo
+    return callback(new Error(`CORS bloqueou a origem: ${origin}`));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], // OPTIONS é crucial para o pré-flight (status 204)
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
@@ -70,9 +82,9 @@ const server = http.createServer(app)
 // ─── Socket.io server ────────────────────────────────────────────
 const io = new SocketServer(server, {
   cors: {
-    origin: ALLOWED_ORIGINS,
+    origin: allowedOrigins,
     credentials: true,
-    methods: ['GET', 'POST']
+    methods: ['GET', 'POST', 'OPTIONS']
   },
   // Reconnection handled on client side; server pings every 25s
   pingInterval: 25000,
