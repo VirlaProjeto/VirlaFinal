@@ -6,12 +6,18 @@ import Send from '@mui/icons-material/Send'
 import Person from '@mui/icons-material/Person'
 import Payments from '@mui/icons-material/Payments'
 import Receipt from '@mui/icons-material/Receipt'
+import Mic from '@mui/icons-material/Mic'
+import StopCircle from '@mui/icons-material/StopCircle'
+import Delete from '@mui/icons-material/Delete'
 
 import api from '../../services/api'
 import { PageLoader, ButtonSpinner } from '../../components/Spinner'
 import GenerateChargeModal from '../../components/GenerateChargeModal'
 import { formatCentsBRL } from '../../utils/paymentFees'
 import { useSocket } from '../../hooks/useSocket'
+import { useAudioRecorder } from '../../hooks/useAudioRecorder'
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3002'
 
 function normalizeVirlaRole(role) {
   if (role == null) return ''
@@ -37,12 +43,13 @@ export default function Chat() {
   const listRef = useRef(null)
   const isChatVisible = useRef(true)
 
+  const { isRecording, startRecording, stopRecording, audioBlob, clearAudio } = useAudioRecorder()
+
   const scrollToBottom = useCallback(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [])
 
-  // Monitora se a aba está em foco (para tocar som ou não)
   useEffect(() => {
     const onFocus = () => { isChatVisible.current = true }
     const onBlur  = () => { isChatVisible.current = false }
@@ -78,7 +85,6 @@ export default function Chat() {
     return res.data.messages?.length ?? 0
   }, [peerId, navigate])
 
-  // Carregamento inicial
   useEffect(() => {
     if (!meId || peerId === meId) {
       navigate('/home')
@@ -121,7 +127,6 @@ export default function Chat() {
     return () => { cancelled = true }
   }, [meId, peerId, navigate, fetchHistory, loadPendingCharge, myRole])
 
-  // --- LÓGICA DO SOCKET.IO ---
   const handleIncomingMessage = useCallback((message) => {
     const isRelevant =
       (message.senderId === peerId && message.receiverId === meId) ||
@@ -141,33 +146,59 @@ export default function Chat() {
     if (isTyping) setTimeout(() => setPeerTyping(false), 3000)
   }, [])
 
-  const { sendMessage, emitTyping, emitRead, isConnected } = useSocket({
+  // CORREÇÃO AQUI: Trouxe o "socket" para podermos emitir o aviso de áudio
+  const { socket, sendMessage, emitTyping, emitRead, isConnected } = useSocket({
     peerId,
     onMessage: handleIncomingMessage,
     onTyping: handleTyping,
     isChatVisible: isChatVisible.current
   })
 
-  // Scroll automático
   useEffect(() => {
     if (!loading) requestAnimationFrame(scrollToBottom)
   }, [loading, messages, peerTyping, scrollToBottom])
 
-  // Emitir confirmação de leitura ao abrir
   useEffect(() => {
     if (peerId && isConnected && !loading) emitRead(peerId)
   }, [peerId, isConnected, loading, emitRead])
 
-  // --- ENVIO DE MENSAGEM ---
   const handleSend = useCallback(async (e) => {
     e.preventDefault()
+    
+    // --- LÓGICA DE ÁUDIO (ENVIO REAL) ---
+    if (audioBlob) {
+      setSending(true)
+      try {
+        const formData = new FormData()
+        formData.append('audio', audioBlob, 'gravacao.webm')
+        formData.append('receiverId', peerId)
+
+        const res = await api.post('/messages/audio', formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        })
+
+        const novaMensagem = res.data.message
+        
+        setMessages((prev) => [...prev, novaMensagem])
+        socket.emit('audio_uploaded', novaMensagem)
+        
+        clearAudio()
+      } catch (err) {
+        console.error("Erro ao enviar áudio:", err)
+        alert("Não foi possível enviar o áudio.")
+      } finally {
+        setSending(false)
+      }
+      return
+    }
+
+    // --- LÓGICA DE TEXTO ---
     const text = input.trim()
     if (!text || sending) return
 
     setSending(true)
     setInput('')
 
-    // UI Otimista
     const optimistic = {
       id: `opt-${Date.now()}`,
       _optimistic: true,
@@ -193,14 +224,13 @@ export default function Chat() {
     } finally {
       setSending(false)
     }
-  }, [input, sending, meId, peerId, sendMessage, fetchHistory])
+  }, [input, sending, meId, peerId, sendMessage, fetchHistory, audioBlob, clearAudio, socket])
 
   const handleInputChange = useCallback((e) => {
     setInput(e.target.value)
     emitTyping(peerId)
   }, [peerId, emitTyping])
 
-  // --- REGRAS DE PAGAMENTO ---
   const myRoleNorm = normalizeVirlaRole(myRole)
   const peerRoleNorm = normalizeVirlaRole(peer?.role)
   const isCaregiver = myRoleNorm === 'CUIDADOR'
@@ -222,7 +252,6 @@ export default function Chat() {
     })
   }
 
-  // --- RENDERIZAÇÃO DA TELA ---
   if (loading) {
     return (
       <PageLoader label="Carregando conversa…">
@@ -237,14 +266,12 @@ export default function Chat() {
 
   return (
     <div className="h-[100dvh] min-h-0 pt-16 bg-[#e8e4ec] flex flex-col">
-      {/* Aviso de Offline */}
       {!isConnected && (
         <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-medium z-50">
           Sem conexão. Reconectando ao servidor...
         </div>
       )}
 
-      {/* CABEÇALHO (MANTIDO IGUAL) */}
       <header className="flex-shrink-0 z-40 bg-virla-roxo text-white shadow-md px-4 py-3 flex items-center gap-3">
         <button type="button" onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-white/15 transition-colors" aria-label="Voltar">
           <ArrowBack sx={{ fontSize: 24 }} />
@@ -280,7 +307,6 @@ export default function Chat() {
         </Link>
       </header>
 
-      {/* AVISO DE COBRANÇA (MANTIDO IGUAL) */}
       {canPay && (
         <div className="flex-shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 text-center text-sm text-amber-900">
           Cobrança pendente: <strong>{formatCentsBRL(pendingCharge.totalAmount)}</strong>
@@ -288,7 +314,6 @@ export default function Chat() {
         </div>
       )}
 
-      {/* LISTA DE MENSAGENS */}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-6 space-y-3 max-w-3xl mx-auto w-full">
         {messages.length === 0 && (
           <p className="text-center text-sm text-virla-texto/50 py-8">Nenhuma mensagem ainda. Diga olá!</p>
@@ -304,7 +329,13 @@ export default function Chat() {
                   ${m._optimistic ? 'opacity-60' : 'opacity-100'}
                 `}
               >
-                <p className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
+                {/* CORREÇÃO AQUI: O áudio agora aponta para o servidor! */}
+                {m.audioUrl ? (
+                  <audio src={`${API_URL}${m.audioUrl}`} controls className="max-w-full h-10 mt-1 rounded" />
+                ) : (
+                  <p className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
+                )}
+                
                 <p className={`text-[10px] mt-1.5 ${mine ? 'text-white/70' : 'text-virla-texto/40'}`}>
                   {new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
                 </p>
@@ -313,7 +344,6 @@ export default function Chat() {
           )
         })}
 
-        {/* INDICADOR DE DIGITAÇÃO COM TAILWIND */}
         {peerTyping && (
           <div className="flex justify-start">
             <div className="bg-white border border-virla-roxo/10 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm flex items-center gap-1">
@@ -325,34 +355,64 @@ export default function Chat() {
         )}
       </div>
 
-      {/* FORMULÁRIO DE ENVIO */}
       <form onSubmit={handleSend} className="flex-shrink-0 bg-white/95 backdrop-blur border-t border-virla-roxo/15 px-4 py-3 shadow-[0_-4px_20px_rgba(128,0,128,0.08)]">
         <div className="max-w-3xl mx-auto flex gap-2 items-end">
-          <textarea
-            rows={1}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                handleSend(e)
-              }
-            }}
-            placeholder="Digite uma mensagem…"
-            className="flex-1 min-h-[44px] max-h-32 resize-y rounded-xl border border-virla-roxo/20 bg-white px-4 py-3 text-sm text-virla-texto placeholder-virla-texto/40 focus:outline-none focus:ring-2 focus:ring-virla-roxo/30 focus:border-virla-roxo"
-          />
-          <button
-            type="submit"
-            disabled={sending || !input.trim()}
-            className="h-11 w-11 sm:h-12 sm:w-12 flex-shrink-0 rounded-xl bg-virla-roxo text-white flex items-center justify-center hover:bg-virla-roxohighlight shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-            aria-label="Enviar"
-          >
-            {sending ? <ButtonSpinner size={22} /> : <Send sx={{ fontSize: 22 }} />}
-          </button>
+          
+          {isRecording ? (
+            <div className="flex-1 flex items-center justify-between bg-red-50 rounded-xl px-4 min-h-[44px] border border-red-200">
+              <div className="flex items-center gap-2 text-red-600 font-medium animate-pulse">
+                <div className="w-2.5 h-2.5 bg-red-600 rounded-full"></div>
+                A gravar áudio...
+              </div>
+              <button type="button" onClick={stopRecording} className="text-red-600 hover:text-red-700 p-2">
+                <StopCircle sx={{ fontSize: 28 }} />
+              </button>
+            </div>
+          ) : audioBlob ? (
+            <div className="flex-1 flex items-center gap-2 bg-gray-50 rounded-xl px-2 min-h-[44px] border border-gray-200">
+              <button type="button" onClick={clearAudio} className="text-gray-500 hover:text-red-500 p-2" aria-label="Apagar áudio">
+                <Delete sx={{ fontSize: 22 }} />
+              </button>
+              <audio src={URL.createObjectURL(audioBlob)} controls className="flex-1 h-10" />
+            </div>
+          ) : (
+            <textarea
+              rows={1}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSend(e)
+                }
+              }}
+              placeholder="Digite uma mensagem…"
+              className="flex-1 min-h-[44px] max-h-32 resize-y rounded-xl border border-virla-roxo/20 bg-white px-4 py-3 text-sm text-virla-texto placeholder-virla-texto/40 focus:outline-none focus:ring-2 focus:ring-virla-roxo/30 focus:border-virla-roxo"
+            />
+          )}
+
+          {(!input.trim() && !audioBlob && !isRecording) ? (
+            <button
+              type="button"
+              onClick={startRecording}
+              className="h-11 w-11 sm:h-12 sm:w-12 flex-shrink-0 rounded-xl bg-gray-100 text-virla-roxo flex items-center justify-center hover:bg-gray-200 transition-all"
+            >
+              <Mic sx={{ fontSize: 24 }} />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={sending || (!input.trim() && !audioBlob) || isRecording}
+              className="h-11 w-11 sm:h-12 sm:w-12 flex-shrink-0 rounded-xl bg-virla-roxo text-white flex items-center justify-center hover:bg-virla-roxohighlight shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              aria-label="Enviar"
+            >
+              {sending ? <ButtonSpinner size={22} /> : <Send sx={{ fontSize: 22 }} />}
+            </button>
+          )}
+
         </div>
       </form>
 
-      {/* MODAL DE COBRANÇA */}
       {showChargeModal && canGenerateCharge && (
         <GenerateChargeModal
           key={peerId}

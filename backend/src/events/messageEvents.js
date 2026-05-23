@@ -1,6 +1,5 @@
 import { prisma } from '../lib/prisma.js'
 import { messageLogger } from '../lib/logger.js'
-import jwt from 'jsonwebtoken'
 
 /**
  * Registers all message-related Socket.io events on a connected socket.
@@ -10,7 +9,7 @@ import jwt from 'jsonwebtoken'
 export function registerMessageEvents(socket, io) {
   const { userId } = socket
 
-  // --- send_message ---
+  // --- send_message (Mensagens de Texto) ---
   socket.on('send_message', async (payload, ack) => {
     const { receiverId, content, idempotencyKey } = payload ?? {}
 
@@ -19,8 +18,6 @@ export function registerMessageEvents(socket, io) {
     }
 
     try {
-      // Idempotency: skip if this key was already processed (simple in-memory guard)
-      // For production, store processed keys in Redis or DB
       const message = await prisma.message.create({
         data: {
           content: content.trim(),
@@ -28,7 +25,8 @@ export function registerMessageEvents(socket, io) {
           receiverId
         },
         include: {
-          sender: { select: { id: true, name: true, avatarUrl: true } }
+          // CORRIGIDO: avatarUrl alterado para profileImage!
+          sender: { select: { id: true, name: true, profileImage: true } }
         }
       })
 
@@ -39,10 +37,10 @@ export function registerMessageEvents(socket, io) {
         timestamp: new Date().toISOString()
       })
 
-      // Deliver to receiver's personal room (they may have multiple tabs)
+      // Entrega na "sala" do destinatário
       io.to(`user:${receiverId}`).emit('receive_message', message)
 
-      // Echo back to sender (confirms persistence, updates their UI)
+      // Ecoa de volta para o remetente
       socket.emit('message_saved', message)
 
       ack?.({ ok: true, messageId: message.id })
@@ -54,6 +52,13 @@ export function registerMessageEvents(socket, io) {
       })
       ack?.({ error: 'Failed to send message' })
     }
+  })
+
+  // --- NOVO: Repassa o aviso de áudio em tempo real ---
+  socket.on('audio_uploaded', (message) => {
+    if (!message || !message.receiverId) return
+    // Apenas encaminha a mensagem pronta (que veio do Multer) para o destinatário
+    io.to(`user:${message.receiverId}`).emit('receive_message', message)
   })
 
   // --- user:typing ---

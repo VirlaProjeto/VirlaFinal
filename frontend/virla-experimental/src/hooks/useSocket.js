@@ -8,9 +8,8 @@ import { playNotificationSound, showBrowserNotification } from '../utils/notific
  * @param {function} opts.onMessage       - Called with a new Message object
  * @param {function} opts.onTyping        - Called with { senderId, isTyping }
  * @param {function} opts.onReadAck       - Called with { readerId }
- * @param {boolean}  opts.isChatVisible   - true when the chat window has focus
  */
-export function useSocket({ peerId, onMessage, onTyping, onReadAck, isChatVisible }) {
+export function useSocket({ peerId, onMessage, onTyping, onReadAck }) {
   const { socket, isConnected } = useSocketContext()
   const typingTimerRef = useRef(null)
 
@@ -21,8 +20,8 @@ export function useSocket({ peerId, onMessage, onTyping, onReadAck, isChatVisibl
     const handleReceive = (message) => {
       onMessage?.(message)
 
-      // Only alert when the chat is in the background
-      if (!isChatVisible) {
+      // Usando a API nativa do navegador para verificar se a aba perdeu o foco
+      if (!document.hasFocus()) {
         playNotificationSound()
         showBrowserNotification(message)
       }
@@ -30,7 +29,7 @@ export function useSocket({ peerId, onMessage, onTyping, onReadAck, isChatVisibl
 
     socket.on('receive_message', handleReceive)
     return () => socket.off('receive_message', handleReceive)
-  }, [socket, onMessage, isChatVisible])
+  }, [socket, onMessage])
 
   // ── peer:typing ───────────────────────────────────────────────
   useEffect(() => {
@@ -96,5 +95,5 @@ export function useSocket({ peerId, onMessage, onTyping, onReadAck, isChatVisibl
   // Cleanup typing timer on unmount
   useEffect(() => () => clearTimeout(typingTimerRef.current), [])
 
-  return { sendMessage, emitTyping, emitRead, isConnected }
+  return { socket, sendMessage, emitTyping, emitRead, isConnected }
 }

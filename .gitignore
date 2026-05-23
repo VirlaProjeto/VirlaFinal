@@ -31,3 +31,6 @@ yarn-error.log*
 # --- Sistema Operacional ---
 .DS_Store
 Thumbs.db
+
+# Pasta de uploads do servidor
+backend/uploads/

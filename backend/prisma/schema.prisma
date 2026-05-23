@@ -84,6 +84,7 @@ model ChargeRequest {
 model Message {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
   content    String
+  audioUrl   String?  
   createdAt  DateTime @default(now())
   senderId   String   @db.ObjectId
   receiverId String   @db.ObjectId

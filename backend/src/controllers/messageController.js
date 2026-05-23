@@ -30,6 +30,7 @@ export const sendMessage = async (req, res) => {
             select: {
                 id: true,
                 content: true,
+                audioUrl: true, // <--- ADICIONADO
                 createdAt: true,
                 senderId: true,
                 receiverId: true,
@@ -40,6 +41,52 @@ export const sendMessage = async (req, res) => {
     } catch (e) {
         console.error(e)
         res.status(500).json({ msg: "Erro ao enviar mensagem" })
+    }
+}
+
+/** NOVO: POST para enviar áudios */
+export const sendAudioMessage = async (req, res) => {
+    try {
+        const { receiverId } = req.body
+        const senderId = req.userId
+        const file = req.file // O Multer coloca o arquivo aqui
+
+        if (!file) {
+            return res.status(400).json({ msg: "Nenhum ficheiro de áudio recebido" })
+        }
+        if (!receiverId) {
+            return res.status(422).json({ msg: "Destinatário é obrigatório" })
+        }
+
+        const receiver = await prisma.user.findUnique({ where: { id: receiverId } })
+        if (!receiver) {
+            return res.status(404).json({ msg: "Usuário destinatário não encontrado" })
+        }
+
+        // Criamos o caminho relativo para salvar no banco
+        const audioUrl = `/uploads/${file.filename}`
+
+        const message = await prisma.message.create({
+            data: {
+                content: "🎵 Mensagem de Áudio", // Um texto amigável para aparecer nas notificações
+                audioUrl,
+                senderId,
+                receiverId,
+            },
+            select: {
+                id: true,
+                content: true,
+                audioUrl: true,
+                createdAt: true,
+                senderId: true,
+                receiverId: true,
+            },
+        })
+
+        res.status(201).json({ message })
+    } catch (e) {
+        console.error("Erro ao fazer upload do áudio:", e)
+        res.status(500).json({ msg: "Erro ao enviar mensagem de áudio" })
     }
 }
 
@@ -75,6 +122,7 @@ export const getMessageHistory = async (req, res) => {
             select: {
                 id: true,
                 content: true,
+                audioUrl: true, // <--- ADICIONADO
                 createdAt: true,
                 senderId: true,
                 receiverId: true,
@@ -93,10 +141,7 @@ export const getMessageHistory = async (req, res) => {
     }
 }
 
-/**
- * Recent conversations for dashboard: one row per other user,
- * with last message preview (scan messages, dedupe by partner — OK for MVP volumes).
- */
+/** Recent conversations for dashboard */
 export const getConversations = async (req, res) => {
     try {
         const me = req.userId
