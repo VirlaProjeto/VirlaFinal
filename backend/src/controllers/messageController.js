@@ -93,7 +93,7 @@ export const getMessageHistory = async (req, res) => {
 
         const other = await prisma.user.findUnique({
             where: { id: otherId },
-            select: { id: true, name: true, role: true, profileImage: true, approach: true },
+            select: { id: true, name: true, role: true, profileImage: true, approach: true, crm_crf: true },
         })
         if (!other) return res.status(404).json({ msg: "Usuário não encontrado" })
 

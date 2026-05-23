@@ -39,5 +39,9 @@ const EMAIL_REGEX =
 export function isValidEmail(value) {
   const email = String(value ?? '').trim()
   if (!email || email.length > 254) return false
-  return EMAIL_REGEX.test(email)
+  if (!EMAIL_REGEX.test(email)) return false
+  const domain = email.split('@')[1]
+  if (!domain || !domain.includes('.')) return false
+  const tld = domain.split('.').pop()
+  return Boolean(tld && tld.length >= 2)
 }

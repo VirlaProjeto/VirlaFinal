@@ -2,20 +2,12 @@ import { toast } from 'sonner'
 import { useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import Person from '@mui/icons-material/Person'
-import CalendarMonth from '@mui/icons-material/CalendarMonth'
 import Work from '@mui/icons-material/Work'
-import Description from '@mui/icons-material/Description'
 import Email from '@mui/icons-material/Email'
 import Lock from '@mui/icons-material/Lock'
 import PersonAdd from '@mui/icons-material/PersonAdd'
 import ArrowBack from '@mui/icons-material/ArrowBack'
-import FamilyRestroom from '@mui/icons-material/FamilyRestroom'
 import Badge from '@mui/icons-material/Badge'
-import Payments from '@mui/icons-material/Payments'
-import Psychology from '@mui/icons-material/Psychology'
-import LocalOffer from '@mui/icons-material/LocalOffer'
-import LocationOn from '@mui/icons-material/LocationOn'
-import PinDrop from '@mui/icons-material/PinDrop'
 import VerifiedUser from '@mui/icons-material/VerifiedUser'
 import api from '../../services/api'
 import { FIELD_CLASS } from '../../constants/formStyles'
@@ -23,19 +15,12 @@ import { ButtonSpinner } from '../../components/Spinner'
 import ProfileImageUpload from '../../components/ProfileImageUpload'
 import { isValidCpf, isValidEmail, maskCpf, stripCpf } from '../../utils/validators'
 
-function birthDateToISO(dateStr) {
-  if (!dateStr) return null
-  return new Date(dateStr).toISOString()
-}
-
-function IconField({ icon: Icon, children, iconTop }) {
+function IconField({ icon: Icon, children }) {
   return (
     <div className="relative">
       <Icon
         sx={{ fontSize: 18 }}
-        className={`absolute left-3 text-virla-roxo/50 pointer-events-none ${
-          iconTop ? 'top-3.5' : 'top-1/2 -translate-y-1/2'
-        }`}
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-virla-roxo/50 pointer-events-none"
       />
       {children}
     </div>
@@ -59,78 +44,51 @@ export default function Cadastro() {
   const [profileImage, setProfileImage] = useState('')
 
   const inputName = useRef()
-  const inputBirthDate = useRef()
-  const inputBio = useRef()
   const inputEmail = useRef()
   const inputPassword = useRef()
-  const inputHourlyRate = useRef()
-  const inputRegisterNumber = useRef()
-  const inputApproach = useRef()
-  const inputSpecialties = useRef()
-  const inputCity = useRef()
-  const inputState = useRef()
-  const inputBeneficiaryName = useRef()
-  const inputRelationship = useRef()
+  const inputCrmCrf = useRef()
 
   async function createUser() {
     if (submitting) return
 
-    const email = inputEmail.current.value.trim()
+    const name = inputName.current?.value?.trim()
+    const email = inputEmail.current?.value?.trim()
+    const password = inputPassword.current?.value
     const cpfDigits = stripCpf(cpf)
 
+    if (!name) {
+      toast.warning('Informe seu nome.')
+      return
+    }
     if (!isValidEmail(email)) {
-    toast.warning('Informe um e-mail válido.')
+      toast.warning('Informe um e-mail válido (ex.: nome@provedor.com).')
       return
     }
     if (!isValidCpf(cpfDigits)) {
-     toast.warning('CPF inválido. Verifique os dígitos.')
+      toast.warning('CPF inválido. Verifique os dígitos.')
+      return
+    }
+    if (!password || password.length < 6) {
+      toast.warning('A senha deve ter pelo menos 6 caracteres.')
       return
     }
 
     setSubmitting(true)
     try {
       const payload = {
-        name: inputName.current.value.trim(),
-        birthDate: birthDateToISO(inputBirthDate.current.value),
+        name,
         role,
-        bio: inputBio.current.value.trim(),
+        bio: '',
         email,
         cpf: cpfDigits,
-        password: inputPassword.current.value,
+        password,
       }
 
       if (profileImage) payload.profileImage = profileImage
 
       if (role === 'CUIDADOR') {
-        const rateRaw = inputHourlyRate.current?.value?.trim().replace(/\s/g, '').replace(',', '.')
-        if (rateRaw) {
-          const n = parseFloat(rateRaw)
-          if (Number.isFinite(n)) payload.hourlyRate = n
-        }
-
-        const registerNumber = inputRegisterNumber.current?.value?.trim()
-        if (registerNumber) payload.registerNumber = registerNumber
-
-        const approach = inputApproach.current?.value?.trim()
-        if (approach) payload.approach = approach
-
-        const specialties = inputSpecialties.current?.value?.trim()
-        if (specialties) payload.specialties = specialties
-
-        const city = inputCity.current?.value?.trim()
-        if (city) payload.city = city
-
-        const stateUf = inputState.current?.value?.trim()
-        if (stateUf) payload.state = stateUf
-      }
-
-      if (role === 'FAMILIAR') {
-        const beneficiary = inputBeneficiaryName.current?.value?.trim()
-        const relationship = inputRelationship.current?.value?.trim()
-        const parts = []
-        if (beneficiary) parts.push(`Beneficiário: ${beneficiary}`)
-        if (relationship) parts.push(`Parentesco: ${relationship}`)
-        if (parts.length) payload.description = parts.join(' | ')
+        const crmCrf = inputCrmCrf.current?.value?.trim()
+        if (crmCrf) payload.crm_crf = crmCrf
       }
 
       await api.post('/users', payload)
@@ -163,20 +121,7 @@ export default function Cadastro() {
         </div>
 
         <div className="bg-white/80 backdrop-blur-sm rounded-3xl shadow-xl border border-virla-roxo/10 p-8 space-y-4">
-          <h2 className="text-xl font-bold text-virla-texto mb-2">Cadastro</h2>
-
-          <IconField icon={Person}>
-            <input ref={inputName} type="text" placeholder="Nome completo" className={FIELD_CLASS} />
-          </IconField>
-
-          <IconField icon={CalendarMonth}>
-            <input
-              ref={inputBirthDate}
-              type="date"
-              className={`${FIELD_CLASS} cursor-pointer`}
-              max={new Date().toISOString().split('T')[0]}
-            />
-          </IconField>
+          <h2 className="text-xl font-bold text-virla-texto mb-1">Cadastro</h2>
 
           <div className="relative">
             <Work
@@ -193,6 +138,12 @@ export default function Cadastro() {
             </select>
           </div>
 
+          <ProfileImageUpload value={profileImage} onChange={setProfileImage} />
+
+          <IconField icon={Person}>
+            <input ref={inputName} type="text" placeholder="Nome completo *" className={FIELD_CLASS} />
+          </IconField>
+
           <IconField icon={VerifiedUser}>
             <input
               type="text"
@@ -205,111 +156,35 @@ export default function Cadastro() {
             />
           </IconField>
 
-          <ProfileImageUpload value={profileImage} onChange={setProfileImage} />
-
           {role === 'CUIDADOR' && (
-            <div className="space-y-4 pt-1 border-t border-virla-roxo/10">
-              <p className="text-xs font-semibold text-virla-roxo/80 uppercase tracking-wide">
-                Perfil profissional (Cuidador)
-              </p>
-
-              <IconField icon={Payments}>
-                <input
-                  ref={inputHourlyRate}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  placeholder="Valor por hora (R$, opcional)"
-                  className={FIELD_CLASS}
-                />
-              </IconField>
-
-              <IconField icon={Badge}>
-                <input
-                  ref={inputRegisterNumber}
-                  type="text"
-                  placeholder="Registro profissional — COREN, CRP… (opcional)"
-                  className={FIELD_CLASS}
-                />
-              </IconField>
-
-              <IconField icon={Psychology}>
-                <input
-                  ref={inputApproach}
-                  type="text"
-                  placeholder="Abordagem — ex.: TCC, home care (opcional)"
-                  className={FIELD_CLASS}
-                />
-              </IconField>
-
-              <IconField icon={LocalOffer} iconTop>
-                <textarea
-                  ref={inputSpecialties}
-                  placeholder="Especialidades, separadas por vírgula (opcional)"
-                  rows={2}
-                  className={`${FIELD_CLASS} resize-none pt-3`}
-                />
-              </IconField>
-
-              <IconField icon={LocationOn}>
-                <input ref={inputCity} type="text" placeholder="Cidade (opcional)" className={FIELD_CLASS} />
-              </IconField>
-
-              <IconField icon={PinDrop}>
-                <input
-                  ref={inputState}
-                  type="text"
-                  placeholder="Estado — UF (opcional)"
-                  className={FIELD_CLASS}
-                  maxLength={2}
-                />
-              </IconField>
-            </div>
+            <IconField icon={Badge}>
+              <input
+                ref={inputCrmCrf}
+                type="text"
+                placeholder="CRM / CRF (opcional)"
+                className={FIELD_CLASS}
+              />
+            </IconField>
           )}
 
-          {role === 'FAMILIAR' && (
-            <div className="space-y-4 pt-1 border-t border-virla-roxo/10">
-              <p className="text-xs font-semibold text-virla-roxo/80 uppercase tracking-wide">
-                Perfil familiar
-              </p>
-              <IconField icon={FamilyRestroom}>
-                <input
-                  ref={inputBeneficiaryName}
-                  type="text"
-                  placeholder="Nome do beneficiário (opcional)"
-                  className={FIELD_CLASS}
-                />
-              </IconField>
-              <IconField icon={Person}>
-                <input
-                  ref={inputRelationship}
-                  type="text"
-                  placeholder="Parentesco — ex.: filho(a), cônjuge (opcional)"
-                  className={FIELD_CLASS}
-                />
-              </IconField>
-              <p className="text-xs text-virla-texto/50">
-                O pagamento via PIX é feito por você após o cuidador gerar a cobrança no chat.
-              </p>
-            </div>
-          )}
-
-          <IconField icon={Description} iconTop>
-            <textarea
-              ref={inputBio}
-              placeholder="Fale um pouco sobre você…"
-              rows={3}
-              className={`${FIELD_CLASS} resize-none pt-3`}
+          <IconField icon={Email}>
+            <input
+              ref={inputEmail}
+              type="email"
+              placeholder="seu@email.com *"
+              className={FIELD_CLASS}
+              autoComplete="email"
             />
           </IconField>
 
-          <IconField icon={Email}>
-            <input ref={inputEmail} type="email" placeholder="seu@email.com" className={FIELD_CLASS} />
-          </IconField>
-
           <IconField icon={Lock}>
-            <input ref={inputPassword} type="password" placeholder="Senha segura" className={FIELD_CLASS} />
+            <input
+              ref={inputPassword}
+              type="password"
+              placeholder="Senha (mín. 6 caracteres) *"
+              className={FIELD_CLASS}
+              autoComplete="new-password"
+            />
           </IconField>
 
           <button

@@ -7,6 +7,7 @@ import api from '../../services/api'
 import { calculateAge } from '../../utils/dateUtils'
 import { formatHourly } from '../../utils/formatters'
 import { PageLoader } from '../../components/Spinner'
+import VerifiedSeal from '../../components/VerifiedSeal'
 
 export default function User() {
   const { userId } = useParams()
@@ -112,10 +113,11 @@ export default function User() {
             </div>
             <div className="flex-1 min-w-0 text-center sm:text-left">
               <h1
-                className="text-2xl font-black text-virla-roxo truncate"
+                className="text-2xl font-black text-virla-roxo truncate inline-flex items-center gap-1.5 max-w-full"
                 style={{ fontFamily: "'Playfair Display', serif" }}
               >
-                {user.name}
+                <span className="truncate">{user.name}</span>
+                <VerifiedSeal user={user} iconSize={22} />
               </h1>
               <p className="text-sm text-virla-texto/55 mt-1">
                 {user.role === 'CUIDADOR' ? 'Cuidador profissional' : 'Familiar'}
@@ -143,10 +145,10 @@ export default function User() {
                   {rateLabel}
                 </p>
               )}
-              {user.registerNumber && (
+              {(user.crm_crf || user.registerNumber) && (
                 <p className="text-sm text-virla-texto/70">
-                  <span className="font-semibold">Registro: </span>
-                  {user.registerNumber}
+                  <span className="font-semibold">CRM/CRF: </span>
+                  {user.crm_crf || user.registerNumber}
                 </p>
               )}
               {user.approach && (
