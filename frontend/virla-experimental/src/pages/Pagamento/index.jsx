@@ -16,28 +16,10 @@ import { ButtonSpinner, InlineSpinner } from '../../components/Spinner'
 import { maskCpf, isValidCpf } from '../../utils/validators'
 import { formatCentsBRL } from '../../utils/paymentFees'
 
-/** Aceita base64 puro ou data-URL retornada pela AbacatePay. */
-function qrImageSrc(base64) {
-  if (!base64) return ''
-  if (String(base64).startsWith('data:')) return base64
-  return `data:image/png;base64,${base64}`
-}
-
-/** Normaliza resposta do back-end / AbacatePay para o shape usado na UI. */
-function normalizeBillingResponse(data) {
-  if (!data || typeof data !== 'object') return null
-  return {
-    ...data,
-    billingId: data.billingId ?? data.id ?? null,
-    pixCode: data.pixCode || data.brCode || '',
-    qrCodeBase64: data.qrCodeBase64 || data.brCodeBase64 || '',
-    status: data.status ?? 'PENDING',
-  }
-}
-
 function StatusPill({ status }) {
   const map = {
     PENDING: { label: 'Aguardando pagamento', color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    ACTIVE: { label: 'Aguardando pagamento', color: 'bg-amber-50 text-amber-700 border-amber-200' },
     PAID: { label: 'Pago', color: 'bg-green-50 text-green-700 border-green-200' },
     EXPIRED: { label: 'Expirado', color: 'bg-red-50 text-red-700 border-red-200' },
     CANCELED: { label: 'Cancelado', color: 'bg-gray-50 text-gray-600 border-gray-200' },
@@ -55,6 +37,10 @@ export default function Pagamento() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // Os dados chegam via location.state (enviados pelo componente de chat/cobrança).
+  // O AppShell já garante que amount e payeeId estão presentes antes de renderizar
+  // este componente (via PagamentoRoute), mas mantemos as verificações locais como
+  // segunda linha de defesa.
   const {
     amount,
     baseAmount,
@@ -74,17 +60,16 @@ export default function Pagamento() {
   const pollRef = useRef(null)
   const myRole = localStorage.getItem('meuRole')
 
+  // Aviso imediato caso o role seja inválido (sem bloquear — AppShell já bloqueou
+  // acesso de não-autenticados; aqui só avisamos sobre role errado).
   useEffect(() => {
     if (myRole && myRole !== 'FAMILIAR') {
       setError('Apenas familiares podem executar o pagamento. Peça ao cuidador para gerar a cobrança.')
     }
-    if (!amount || !payeeId) {
-      setError((prev) =>
-        prev || 'Nenhuma cobrança selecionada. Abra o chat com o cuidador e use o botão de pagamento.',
-      )
-    }
-  }, [myRole, amount, payeeId])
+  }, [myRole])
 
+  // Polling de status: inicia assim que o billingId existir e para ao confirmar
+  // pagamento ou ao desmontar o componente.
   useEffect(() => {
     if (!billing?.billingId || status === 'PAID') return
 
@@ -95,10 +80,12 @@ export default function Pagamento() {
         setStatus(s)
         if (s === 'PAID') {
           clearInterval(pollRef.current)
+          // Pagamento confirmado: grava flag de sessão para liberar /pagamento/sucesso
+          sessionStorage.setItem('virla_pag_sessao', 'true')
           setTimeout(() => navigate('/pagamento/sucesso'), 1500)
         }
       } catch {
-        /* retry */
+        /* silencia erros transitórios — o polling tentará novamente */
       }
     }, 5_000)
 
@@ -138,13 +125,16 @@ export default function Pagamento() {
         payeeId,
         chargeRequestId,
       })
-      const normalized = normalizeBillingResponse(res.data)
-      if (!normalized?.pixCode && !normalized?.qrCodeBase64) {
-        setError('PIX gerado, mas o gateway não retornou QR/código. Tente novamente ou contate o suporte.')
-        return
-      }
-      setBilling(normalized)
-      setStatus(normalized.status)
+
+      // Grava flag de sessão imediatamente ao receber dados válidos da API.
+      // Isso libera o acesso a /pagamento/sucesso quando o pagamento for confirmado.
+      sessionStorage.setItem('virla_pag_sessao', 'true')
+
+      setBilling(res.data)
+      // A AbacatePay pode retornar status "ACTIVE" (cobrança ativa aguardando PIX).
+      // Normalizamos para "PENDING" internamente para a UI.
+      const initialStatus = res.data.status === 'ACTIVE' ? 'PENDING' : (res.data.status ?? 'PENDING')
+      setStatus(initialStatus)
     } catch (err) {
       setError(err.response?.data?.msg ?? 'Erro ao gerar o PIX. Tente novamente.')
     } finally {
@@ -294,7 +284,7 @@ export default function Pagamento() {
                 </p>
                 <div className="p-3 rounded-2xl border-2 border-virla-roxo/15 bg-white shadow-inner">
                   <img
-                    src={qrImageSrc(billing.qrCodeBase64)}
+                    src={`data:image/png;base64,${billing.qrCodeBase64}`}
                     alt="PIX QR Code"
                     className="w-48 h-48 object-contain"
                   />

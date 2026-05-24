@@ -1,5 +1,9 @@
 // Tela de confirmação simples mostrada após um PIX ser confirmado.
+// Acesso protegido por PagamentoSucessoRoute (AppShell.jsx):
+//   - exige autenticação (token + userId)
+//   - exige flag `virla_pag_sessao` em sessionStorage
 
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import CheckCircle from '@mui/icons-material/CheckCircle'
 import Home from '@mui/icons-material/Home'
@@ -7,6 +11,14 @@ import Chat from '@mui/icons-material/Chat'
 
 export default function PagamentoSucesso() {
   const navigate = useNavigate()
+
+  // Limpa a flag de sessão ao montar a tela de sucesso.
+  // Assim, se o usuário tentar acessar /pagamento/sucesso diretamente
+  // depois de já ter visitado, será redirecionado para /home.
+  useEffect(() => {
+    sessionStorage.removeItem('virla_pag_sessao')
+  }, [])
+
   return (
     <div className="min-h-screen pt-16 bg-virla-neve flex items-center justify-center px-4">
       <div className="w-full max-w-sm text-center space-y-6">
