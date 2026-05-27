@@ -9,7 +9,10 @@ import PaymentRoutes from "./src/routes/paymentRoutes.js"
 const app = express()
 const PORT = 3002
 // Limite maior para fotos de perfil em base64 (data URL)
-app.use(express.json({ limit: '4mb' }))
+app.use((req, res, next) => {
+  if (req.path === '/webhooks/abacatepay') return next()
+  return express.json({ limit: '4mb' })(req, res, next)
+})
 app.use(cors())
 
 app.use(userRoutes)

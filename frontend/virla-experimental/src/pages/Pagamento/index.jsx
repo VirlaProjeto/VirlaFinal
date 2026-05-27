@@ -10,6 +10,8 @@ import ErrorIcon from '@mui/icons-material/Error'
 import VerifiedUser from '@mui/icons-material/VerifiedUser'
 import Schedule from '@mui/icons-material/Schedule'
 import Smartphone from '@mui/icons-material/Smartphone'
+import Replay from '@mui/icons-material/Replay'
+import { toast } from 'sonner'
 import api from '../../services/api'
 import { FIELD_CLASS } from '../../constants/formStyles'
 import { ButtonSpinner, InlineSpinner } from '../../components/Spinner'
@@ -26,12 +28,14 @@ function qrImageSrc(base64) {
 /** Normaliza resposta do back-end / AbacatePay para o shape usado na UI. */
 function normalizeBillingResponse(data) {
   if (!data || typeof data !== 'object') return null
+  const expiresAt = data.expiresAt ? new Date(data.expiresAt).toISOString() : null
   return {
     ...data,
     billingId: data.billingId ?? data.id ?? null,
     pixCode: data.pixCode || data.brCode || '',
     qrCodeBase64: data.qrCodeBase64 || data.brCodeBase64 || '',
     status: data.status ?? 'PENDING',
+    expiresAt,
   }
 }
 
@@ -70,6 +74,7 @@ export default function Pagamento() {
   const [billing, setBilling] = useState(null)
   const [copied, setCopied] = useState(false)
   const [status, setStatus] = useState('PENDING')
+  const [expiredByTimer, setExpiredByTimer] = useState(false)
 
   const pollRef = useRef(null)
   const myRole = localStorage.getItem('meuRole')
@@ -95,7 +100,21 @@ export default function Pagamento() {
         setStatus(s)
         if (s === 'PAID') {
           clearInterval(pollRef.current)
-          setTimeout(() => navigate('/pagamento/sucesso'), 1500)
+          toast.success('Pagamento aprovado com sucesso.')
+          setTimeout(() => {
+            navigate('/pagamento/sucesso', {
+              state: {
+                billingId: billing.billingId,
+                amount,
+                description,
+                paidAt: res.data.paidAt ?? new Date().toISOString(),
+                status: s,
+              },
+            })
+          }, 1000)
+        } else if (s === 'EXPIRED' || s === 'CANCELED') {
+          clearInterval(pollRef.current)
+          toast.warning('Esse QR Code expirou. Gere um novo para continuar.')
         }
       } catch {
         /* retry */
@@ -104,6 +123,22 @@ export default function Pagamento() {
 
     return () => clearInterval(pollRef.current)
   }, [billing, status, navigate])
+
+  useEffect(() => {
+    if (!billing?.expiresAt || status === 'PAID') return
+    const timeoutMs = new Date(billing.expiresAt).getTime() - Date.now()
+    if (timeoutMs <= 0) {
+      setExpiredByTimer(true)
+      setStatus('EXPIRED')
+      return
+    }
+    const t = setTimeout(() => {
+      setExpiredByTimer(true)
+      setStatus('EXPIRED')
+      toast.warning('QR Code expirado após 5 minutos.')
+    }, timeoutMs)
+    return () => clearTimeout(t)
+  }, [billing, status])
 
   function maskPhone(v) {
     const d = v.replace(/\D/g, '').slice(0, 11)
@@ -139,12 +174,14 @@ export default function Pagamento() {
         chargeRequestId,
       })
       const normalized = normalizeBillingResponse(res.data)
-      if (!normalized?.pixCode && !normalized?.qrCodeBase64) {
-        setError('PIX gerado, mas o gateway não retornou QR/código. Tente novamente ou contate o suporte.')
+      if (!normalized?.pixCode && !normalized?.qrCodeBase64 && !normalized?.checkoutUrl) {
+        setError('Não foi possível obter os dados do pagamento. Tente novamente.')
         return
       }
       setBilling(normalized)
       setStatus(normalized.status)
+      setExpiredByTimer(false)
+      toast.info('Pagamento pendente. Finalize o PIX em até 5 minutos.')
     } catch (err) {
       setError(err.response?.data?.msg ?? 'Erro ao gerar o PIX. Tente novamente.')
     } finally {
@@ -171,6 +208,7 @@ export default function Pagamento() {
   }
 
   const canPay = amount && payeeId && (!myRole || myRole === 'FAMILIAR')
+  const isExpired = status === 'EXPIRED' || status === 'CANCELED' || expiredByTimer
 
   return (
     <div className="min-h-screen pt-16 bg-virla-neve flex items-start justify-center px-4 py-10"
@@ -340,10 +378,30 @@ export default function Pagamento() {
               )}
             </div>
 
-            {status !== 'PAID' && (
+            {!isExpired && status !== 'PAID' && (
               <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">
                 <InlineSpinner size={18} />
                 <span>Aguardando confirmação do pagamento. Esta página atualiza automaticamente.</span>
+              </div>
+            )}
+
+            {isExpired && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                  <ErrorIcon sx={{ fontSize: 18 }} className="flex-shrink-0 mt-0.5" />
+                  <span>QR Code expirado. Gere um novo código para concluir o pagamento.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBilling(null)
+                    setStatus('PENDING')
+                    setExpiredByTimer(false)
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-virla-roxo/20 text-virla-roxo hover:bg-virla-roxo/5"
+                >
+                  <Replay sx={{ fontSize: 18 }} /> Gerar novo QR Code
+                </button>
               </div>
             )}
 

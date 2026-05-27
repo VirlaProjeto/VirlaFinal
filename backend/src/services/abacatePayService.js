@@ -87,12 +87,12 @@ export function buildBillingPayload({
   }
 
   const cellphone = user.cellphone ? String(user.cellphone).replace(/\D/g, '') : ''
-  if (user.name && validateEmail(user.email) && cellphone) {
+  if (user.name && validateEmail(user.email)) {
     payload.customer = {
       name: user.name,
       email: user.email,
-      taxId: taxIdResult.cleaned,
-      cellphone,
+      taxId: stripCpf(taxIdResult.cleaned),
+      ...(cellphone && { cellphone }),
     }
   }
 
@@ -103,7 +103,13 @@ export function buildBillingPayload({
  * Payload para PIX embutido (QR + copia-e-cola na tela Virla).
  * @see https://docs.abacatepay.com/api-reference/criar-qrcode-pix
  */
-export function buildPixQrCodePayload({ user, amount, description = 'Serviço Virla', metadata }) {
+export function buildPixQrCodePayload({
+  user,
+  amount,
+  description = 'Serviço Virla',
+  metadata,
+  expiresInSeconds = 300,
+}) {
   const taxIdResult = validateTaxId(user.taxId)
   if (!taxIdResult.valid) {
     throw new Error(`CPF inválido: "${user.taxId}".`)
@@ -115,16 +121,17 @@ export function buildPixQrCodePayload({ user, amount, description = 'Serviço Vi
   const payload = {
     amount,
     description: String(description).slice(0, 37),
+    expires_in: expiresInSeconds,
     ...(metadata && Object.keys(metadata).length > 0 && { metadata }),
   }
 
   const cellphone = user.cellphone ? String(user.cellphone).replace(/\D/g, '') : ''
-  if (user.name && validateEmail(user.email) && cellphone) {
+  if (user.name && validateEmail(user.email)) {
     payload.customer = {
       name: user.name,
       email: user.email,
-      taxId: taxIdResult.cleaned,
-      cellphone,
+      taxId: stripCpf(taxIdResult.cleaned),
+      ...(cellphone && { cellphone }),
     }
   }
 
@@ -145,6 +152,7 @@ function mapPixResponse(pix, { gatewayBillingId = null, checkoutUrl = '' } = {})
     ),
     checkoutUrl: checkoutUrl || pix.url || pix.checkoutUrl || '',
     status: pix.status ?? 'PENDING',
+    expiresAt: pix.expiresAt ?? pix.expireAt ?? null,
     devMode: pix.devMode ?? false,
     rawResponse: pix,
   }
@@ -155,7 +163,10 @@ async function abacatePost(path, body, label) {
   const timeout = setTimeout(() => controller.abort(), 15_000)
 
   try {
-    const response = await fetch(`${ABACATEPAY_API_URL}${path}`, {
+    const url = `${ABACATEPAY_API_URL}${path}`
+    console.info(`[AbacatePay] -> ${label}`, JSON.stringify(body))
+
+    const response = await fetch(url, {
       method: 'POST',
       headers: buildHeaders(),
       body: JSON.stringify(body),
@@ -163,11 +174,17 @@ async function abacatePost(path, body, label) {
     })
 
     const data = await response.json().catch(() => ({}))
+    console.info(`[AbacatePay] <- ${label} HTTP ${response.status}`, JSON.stringify(data))
     if (!response.ok) {
       const msg =
         data?.error ??
+        data?.message ??
+        data?.msg ??
         `AbacatePay ${label} HTTP ${response.status}: ${JSON.stringify(data)}`
-      throw new Error(msg)
+      const error = new Error(msg)
+      error.status = response.status
+      error.responseBody = data
+      throw error
     }
 
     return data?.data ?? data
@@ -203,7 +220,7 @@ export async function createPixQrCharge(params, { linkedBillingId } = {}) {
     virlaSource: 'virla-app',
     ...(linkedBillingId && { virlaBillingId: linkedBillingId }),
   }
-  const payload = buildPixQrCodePayload({ ...params, metadata })
+  const payload = buildPixQrCodePayload({ ...params, metadata, expiresInSeconds: 300 })
   const pix = await abacatePost('/pixQrCode/create', payload, 'pixQrCode/create')
   console.info(
     `[AbacatePay] PIX QR criado: ${pix.id} (devMode=${pix.devMode ?? '?'})`,
@@ -218,12 +235,14 @@ export async function createPixQrCharge(params, { linkedBillingId } = {}) {
 export async function createBilling(params) {
   const externalId = `virla-${Date.now()}`
 
-  let hosted = null
-  try {
-    hosted = await createHostedBilling({ ...params, externalId })
-  } catch (err) {
-    console.warn('[AbacatePay] Falha ao registrar cobrança no painel:', err.message)
-  }
+  const hosted = await createHostedBilling({ ...params, externalId }).catch((err) => {
+    console.error('[AbacatePay] FALHA billing/create:', {
+      message: err.message,
+      status: err.status,
+      responseBody: err.responseBody,
+    })
+    throw err
+  })
 
   const pix = await createPixQrCharge(params, {
     linkedBillingId: hosted?.id ?? null,
