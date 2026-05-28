@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import './style.css'; 
 import {
   VolunteerActivism, Face, CheckCircle, Public, WarningAmber, 
@@ -8,8 +9,10 @@ import {
 } from '@mui/icons-material';
 
 function Landing() {
+  const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [loadingBtn, setLoadingBtn] = useState(null); // Estado para o Efeito Uau dos botões
 
   // ── Dados do Carrossel Principal ──
   const carouselItems = [
@@ -83,6 +86,14 @@ function Landing() {
     };
   }, [carouselItems.length]);
 
+  // Função para dar o feedback visual de carregamento antes de navegar
+  const handleNavigate = (path, actionName) => {
+    setLoadingBtn(actionName);
+    setTimeout(() => {
+      navigate(path);
+    }, 600); // 600ms de atraso para o usuário ver o spinner girando
+  };
+
   return (
     <div className='w-full overflow-hidden'>
       {/* ══════════════════════════════
@@ -104,12 +115,32 @@ function Landing() {
             <a href="#trajetoria">Nossa História</a>
           </nav>
 
-          <div className="header-actions">
-            <a href="/login" className="btn-ghost">Fazer Login</a>
-            <a href="/cadastro" className="btn-primary">
-              <VpnKey sx={{ fontSize: 18 }} />
-              Acessar Sistema
-            </a>
+          <div className="header-actions flex gap-3">
+            <button 
+              onClick={() => handleNavigate('/login', 'login')} 
+              disabled={loadingBtn !== null}
+              className="btn-ghost flex items-center justify-center min-w-[110px]"
+            >
+              {loadingBtn === 'login' ? (
+                <div className="w-5 h-5 border-2 border-virla-roxo border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                "Fazer Login"
+              )}
+            </button>
+            <button 
+              onClick={() => handleNavigate('/cadastro', 'cadastro')} 
+              disabled={loadingBtn !== null}
+              className="btn-primary flex items-center justify-center min-w-[160px]"
+            >
+              {loadingBtn === 'cadastro' ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <VpnKey sx={{ fontSize: 18 }} />
+                  Acessar Sistema
+                </>
+              )}
+            </button>
           </div>
         </div>
       </header>
@@ -122,7 +153,7 @@ function Landing() {
         <div className="hero-bg-blob blob-2"></div>
 
         <div className="hero-inner">
-          <div className="hero-content">
+          <div className="hero-content relative z-10">
             <div className="hero-badge">
               <span className="badge-dot"></span>
               Validação Aberta - MVP
@@ -163,7 +194,7 @@ function Landing() {
             </div>
           </div>
 
-          <div className="hero-visual">
+          <div className="hero-visual relative z-0">
             <div className="hero-card-main relative">
               {/* Carrossel Dinâmico */}
               <div 
@@ -171,10 +202,10 @@ function Landing() {
                 className="hero-img-placeholder flex flex-col items-center justify-center p-8 text-center gap-4 transition-opacity duration-500 ease-in-out animate-[fadeIn_0.5s_ease-in-out]"
               >
                 {carouselItems[currentSlide].icon}
-                <div className="font-serif text-2xl text-[var(--purple)] font-black">
+                <div className="font-serif text-2xl text-[var(--purple)] font-black px-2">
                   {carouselItems[currentSlide].title}
                 </div>
-                <div className="text-sm text-gray-600 leading-relaxed max-w-sm">
+                <div className="text-sm text-gray-600 leading-relaxed max-w-sm px-2">
                   {carouselItems[currentSlide].text}
                 </div>
               </div>
@@ -187,8 +218,8 @@ function Landing() {
               </div>
             </div>
 
-            {/* Float Card Esquerda */}
-            <div className="float-card float-card-1 animate-[fadeIn_0.5s_ease-in-out]" key={`fl-${currentSlide}`}>
+            {/* Float Card Esquerda (Oculto em telas muito pequenas para não quebrar o layout) */}
+            <div className="float-card float-card-1 animate-[fadeIn_0.5s_ease-in-out] hidden md:flex" key={`fl-${currentSlide}`}>
               <div className={`float-icon ${floatingStatsLeft[currentSlide].bg} flex items-center justify-center`}>
                 {floatingStatsLeft[currentSlide].icon}
               </div>
@@ -198,8 +229,8 @@ function Landing() {
               </div>
             </div>
 
-            {/* Float Card Direita (Novo) */}
-            <div className="float-card float-card-2 animate-[fadeIn_0.5s_ease-in-out]" key={`fr-${currentSlide}`} style={{ top: '2rem', right: '-2.5rem', bottom: 'auto', left: 'auto' }}>
+            {/* Float Card Direita (Oculto em telas muito pequenas) */}
+            <div className="float-card float-card-2 animate-[fadeIn_0.5s_ease-in-out] hidden md:flex" key={`fr-${currentSlide}`} style={{ top: '2rem', right: '-2.5rem', bottom: 'auto', left: 'auto' }}>
               <div className={`float-icon ${floatingStatsRight[currentSlide].bg} flex items-center justify-center`}>
                 {floatingStatsRight[currentSlide].icon}
               </div>
@@ -298,7 +329,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          A SOLUÇÃO: O MVP VIRLA
+          A SOLUÇÃO: O MVP VIRLA (COM AVISOS DE SEGURANÇA E TAXAS)
       ══════════════════════════════ */}
       <section id="solucao" className="solucao py-24 bg-[var(--surface-alt)] border-y border-[var(--border)]">
         <div className="container mx-auto px-6 max-w-6xl">
@@ -309,7 +340,7 @@ function Landing() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex gap-6 reveal reveal-delay-1 hover:-translate-y-1 transition-transform">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex flex-col sm:flex-row gap-6 reveal reveal-delay-1 hover:-translate-y-1 transition-transform">
                <div className="flex-shrink-0 w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center">
                   <Search sx={{ color: 'var(--purple)', fontSize: 28 }} />
                </div>
@@ -319,7 +350,7 @@ function Landing() {
                </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex gap-6 reveal reveal-delay-2 hover:-translate-y-1 transition-transform">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex flex-col sm:flex-row gap-6 reveal reveal-delay-2 hover:-translate-y-1 transition-transform">
                <div className="flex-shrink-0 w-14 h-14 bg-green-100 rounded-2xl flex items-center justify-center">
                   <Security sx={{ color: '#16A34A', fontSize: 28 }} />
                </div>
@@ -329,7 +360,7 @@ function Landing() {
                </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex gap-6 reveal reveal-delay-3 hover:-translate-y-1 transition-transform">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex flex-col sm:flex-row gap-6 reveal reveal-delay-3 hover:-translate-y-1 transition-transform">
                <div className="flex-shrink-0 w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center">
                   <Chat sx={{ color: '#2563EB', fontSize: 28 }} />
                </div>
@@ -339,13 +370,21 @@ function Landing() {
                </div>
             </div>
 
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-purple-100 flex gap-6 reveal reveal-delay-4 hover:-translate-y-1 transition-transform">
-               <div className="flex-shrink-0 w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center">
+            {/* CARD DE PAGAMENTO REVISADO (TRANSPARÊNCIA E SEGURANÇA) */}
+            <div className="bg-white p-8 rounded-3xl shadow-md border-2 border-pink-200 flex flex-col sm:flex-row gap-6 reveal reveal-delay-4 hover:-translate-y-1 transition-transform relative overflow-hidden">
+               <div className="absolute top-0 right-0 w-24 h-24 bg-pink-50 rounded-bl-full -z-10"></div>
+               <div className="flex-shrink-0 w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center z-10">
                   <AccountBalanceWallet sx={{ color: '#DB2777', fontSize: 28 }} />
                </div>
-               <div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Pagamento Garantido</h3>
-                  <p className="text-gray-600">Sistema Escrow: o dinheiro fica retido na plataforma e o cuidador só recebe após o serviço ser concluído e aprovado.</p>
+               <div className="z-10">
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Pagamento 100% Garantido</h3>
+                  <p className="text-gray-600 mb-4 text-sm">
+                    Sistema Escrow via <strong>AbacatePay</strong>. O dinheiro fica retido e o profissional só recebe ao finalizar. Cobramos apenas uma taxa transparente de <strong className="text-pink-600">7% + R$ 0,80</strong> por transação.
+                  </p>
+                  <div className="flex items-start gap-2 bg-red-50 p-3 rounded-xl border border-red-100 text-xs text-red-700 font-medium">
+                    <WarningAmber sx={{ fontSize: 16 }} className="flex-shrink-0 mt-0.5" />
+                    <p>Atenção: A Virla não reconhece nem se responsabiliza por pagamentos realizados fora da plataforma.</p>
+                  </div>
                </div>
             </div>
           </div>
@@ -366,7 +405,7 @@ function Landing() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
             <div className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20">
                <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><CheckCircle fontSize="small" /> Sem Mensalidades</h3>
-               <p className="text-purple-100">Diferente do Famyle, não cobramos para você "olhar". Ganhamos apenas no sucesso do cuidado com uma taxa fixa de 7%.</p>
+               <p className="text-purple-100">Diferente do Famyle, não cobramos para você "olhar". Ganhamos apenas no sucesso do cuidado com a taxa de 7%.</p>
             </div>
             <div className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20">
                <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><MedicalServices fontSize="small" /> Especialistas</h3>
@@ -378,7 +417,6 @@ function Landing() {
             </div>
           </div>
 
-          {/* DADOS DE MERCADO ATUALIZADOS */}
           <div className="bg-white rounded-3xl p-8 md:p-12 text-center shadow-2xl flex flex-col md:flex-row items-center justify-around gap-8 text-gray-900">
              <div>
                <div className="text-4xl md:text-5xl font-black text-[var(--purple)] mb-2">R$ 12,3 Bi</div>
@@ -396,14 +434,14 @@ function Landing() {
 
              <div>
                <div className="text-4xl md:text-5xl font-black text-pink-500 mb-2">840 mil</div>
-               <div className="text-sm font-bold text-gray-500 uppercase tracking-wide">Cuidadores buscando formalização</div>
+               <div className="text-sm font-bold text-gray-500 uppercase tracking-wide">Cuidadores na informalidade</div>
              </div>
           </div>
         </div>
       </section>
 
       {/* ══════════════════════════════
-          LINHA DO TEMPO (Com suporte a Imagens)
+          LINHA DO TEMPO
       ══════════════════════════════ */}
       <section id="trajetoria" className="py-24 bg-white">
         <div className="container mx-auto px-6 max-w-5xl reveal text-center">
@@ -454,18 +492,15 @@ function Landing() {
               <div key={idx} className={`flex flex-col md:flex-row gap-6 p-6 rounded-2xl border transition-colors ${item.highlight ? 'bg-purple-50 border-[var(--purple)] shadow-md relative overflow-hidden' : 'bg-gray-50 border-gray-100 hover:border-purple-200'}`}>
                 {item.highlight && <div className="absolute right-0 top-0 w-24 h-24 bg-[var(--purple)] opacity-10 rounded-bl-full"></div>}
                 
-                {/* Número do Passo */}
                 <div className={`w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-xl ${item.highlight ? 'bg-[var(--purple)] text-white' : 'bg-purple-100 text-[var(--purple)]'}`}>
                   {item.step}
                 </div>
                 
-                {/* Texto */}
                 <div className="flex-1">
                   <h4 className="text-xl font-bold text-gray-900 mb-2">{item.title}</h4>
                   <p className={`${item.highlight ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>{item.desc}</p>
                 </div>
 
-                {/* Área da Imagem de Validação */}
                 {item.img && (
                   <div className="w-full md:w-64 h-40 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-gray-200">
                     <img src={item.img} alt={`Validação - ${item.title}`} className="w-full h-full object-cover" />
@@ -505,7 +540,7 @@ function Landing() {
                       {member.initials}
                     </div>
                   )}
-                  <h4 className="font-bold text-gray-900">{member.name}</h4>
+                  <h4 className="font-bold text-gray-900 text-center">{member.name}</h4>
                   <span className="text-sm text-purple-600 font-medium mt-1">{member.role}</span>
                 </div>
               ))}
@@ -528,7 +563,7 @@ function Landing() {
                       {member.initials}
                     </div>
                   )}
-                  <h4 className="font-bold text-gray-900 text-sm">{member.name}</h4>
+                  <h4 className="font-bold text-gray-900 text-sm text-center">{member.name}</h4>
                   <span className="text-xs text-pink-500 font-medium mt-1">{member.role}</span>
                 </div>
               ))}
@@ -537,7 +572,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          FINAL CTA (Direcionado para Validação)
+          FINAL CTA
       ══════════════════════════════ */}
       <section id="contato" className="final-cta pb-12 pt-0">
         <div className="container mx-auto px-6 max-w-5xl">
