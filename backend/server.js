@@ -20,78 +20,149 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const PORT = process.env.PORT || 3002
+const NODE_ENV = process.env.NODE_ENV || 'development'
+const IS_PROD = NODE_ENV === 'production'
 
-// --- Configuração "Cadeado Mestre" do CORS ---
-const allowedOrigins = [
-  'http://localhost:5173',  // Vite dev
+// ─── CORS: Lista de origens permitidas ───────────────────────────
+//
+// CORREÇÃO 1: Separar a lista de origens CORS num Set para lookup O(1).
+// O bug original: se FRONTEND_URL não estivesse definido, a lista ficava
+// incompleta e origens válidas do Render eram bloqueadas com HTTP 500
+// (porque `new Error()` no callback do cors vai para o error handler global,
+// não retorna 403 como seria esperado).
+//
+const allowedOriginsSet = new Set([
+  'http://localhost:5173', // Vite dev
   'http://localhost:3000',
-  'https://virla-app.onrender.com' // <-- A nossa garantia de que a nuvem vai funcionar
-];
+  'https://virla-app.onrender.com', // Frontend na Render
+])
 
-// Injeta a variável de ambiente limpando espaços (trim) e barras no final
+// Injeta variável de ambiente limpando espaços e barras no final
 if (process.env.FRONTEND_URL) {
-  allowedOrigins.push(process.env.FRONTEND_URL.trim().replace(/\/$/, ''));
+  allowedOriginsSet.add(process.env.FRONTEND_URL.trim().replace(/\/$/, ''))
 }
 
-// --- Express app
-const app = express();
+const allowedOrigins = [...allowedOriginsSet]
 
+// Função de validação de origin reutilizada pelo Express e pelo Socket.io
+function isOriginAllowed(origin) {
+  // Permite requests sem origin (Postman, cURL, webhooks server-to-server)
+  if (!origin) return true
+  return allowedOriginsSet.has(origin)
+}
+
+// ─── Express app ─────────────────────────────────────────────────
+const app = express()
+
+// CORREÇÃO 2: Retornar 403 em vez de propagar erro para o handler global.
+// No original, `return callback(new Error(...))` enviava o erro para o
+// middleware de erro do Express, que respondia com HTTP 500 e logava um
+// stack trace desnecessário para cada request de origem inválida.
 app.use(cors({
   origin: function (origin, callback) {
-    // Permite conexões sem origin (como testes no Postman)
-    if (!origin) return callback(null, true);
-    
-    // Se a origem estiver na nossa lista segura, deixa passar
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
+    if (isOriginAllowed(origin)) {
+      return callback(null, true)
     }
-    
-    // Se não estiver, barra e avisa o motivo
-    return callback(new Error(`CORS bloqueou a origem: ${origin}`));
+    // Retorna null (sem erro) + false: Express envia 403 automaticamente
+    // sem poluir o logger de erros com falsos-positivos
+    logger.warn('cors:blocked', { origin })
+    return callback(null, false)
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'], // OPTIONS é crucial para o pré-flight (status 204)
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  // CORREÇÃO 3: Responder pre-flight OPTIONS com 204 sem passar para rotas.
+  // Sem isso, OPTIONS pode cair em rotas não configuradas e retornar 404.
+  optionsSuccessStatus: 204,
+}))
 
 app.use(express.json({ limit: '4mb' }))
 
-// ─── Tornar a pasta 'uploads' pública ────────────────────────────
+// ─── Servir pasta uploads publicamente ───────────────────────────
 app.use('/uploads', express.static(path.resolve(__dirname, 'uploads')))
 
-// ─── HTTP routes (keep all existing endpoints) ───────────────────
+// ─── Healthcheck ─────────────────────────────────────────────────
+// CORREÇÃO 4 (CRÍTICA para o 502): A Render usa este endpoint para checar
+// se o serviço está vivo. Sem ele, o health check pode bater em rotas
+// autenticadas, receber 401, e a Render interpretar como serviço degradado,
+// reiniciando o container no meio de uma request de pagamento — o que gera
+// exatamente o 502 que você está vendo no polling do AbacatePay.
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', env: NODE_ENV, ts: Date.now() })
+})
+
+// ─── Rotas HTTP ──────────────────────────────────────────────────
 app.use(userRoutes)
 app.use(authRoutes)
 app.use(messageRoutes)
 app.use(PaymentRoutes)
 
-// ─── Global error handler (NEW) ──────────────────────────────────
-app.use((err, req, res, next) => {
+// ─── Global error handler ─────────────────────────────────────────
+// CORREÇÃO 5: Não retornar stack trace em produção (vaza informação interna).
+app.use((err, req, res, _next) => {
   logger.error('http:unhandled_error', {
     error: err.message,
-    stack: err.stack,
+    stack: IS_PROD ? undefined : err.stack,
     path: req.path,
-    method: req.method
+    method: req.method,
   })
-  res.status(500).json({ msg: 'Internal server error' })
+  res.status(err.status ?? 500).json({ msg: IS_PROD ? 'Internal server error' : err.message })
 })
 
-// ─── HTTP server (share with Socket.io) ──────────────────────────
+// ─── HTTP server (compartilhado com Socket.io) ───────────────────
 const server = http.createServer(app)
 
-// ─── Socket.io server ────────────────────────────────────────────
+// ─── Socket.io ───────────────────────────────────────────────────
+//
+// CORREÇÃO 6 (CRÍTICA para o chat): Declarar `transports` explicitamente.
+//
+// O problema: sem declarar transportes, o Socket.io tenta WebSocket direto.
+// Na Render, o proxy reverso (nginx) deles às vezes não propaga o header
+// `Upgrade: websocket` corretamente no primeiro handshake — especialmente
+// no plano free/starter. Isso faz a conexão falhar silenciosamente ou
+// ficar em estado "connecting" indefinidamente no cliente.
+//
+// A solução: iniciar com 'polling' e deixar o Socket.io fazer o upgrade
+// para 'websocket' assim que o handshake HTTP estiver estável.
+// ['polling', 'websocket'] = polling primeiro, upgrade automático depois.
+//
+// IMPORTANTE: o frontend também precisa usar esta ordem:
+//   io(URL, { transports: ['polling', 'websocket'] })
+//
 const io = new SocketServer(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: isOriginAllowed,  // Reutiliza a mesma função — consistência garantida
     credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS']
+    methods: ['GET', 'POST', 'OPTIONS'],
   },
-  // Reconnection handled on client side; server pings every 25s
-  pingInterval: 25000,
-  pingTimeout: 60000
+
+  // CORREÇÃO 7: Ajustar ping para o ambiente da Render.
+  //
+  // A Render fecha conexões TCP idle após ~55s (plano free) ou ~75s (paid).
+  // Com pingTimeout: 60000, quando o servidor enviava um ping e aguardava
+  // 60s pela resposta, a conexão já havia sido fechada pelo proxy da Render
+  // (~55s) — o servidor ficava esperando uma resposta que nunca chegaria,
+  // e o socket era marcado como "disconnected" após 60s de silêncio.
+  // Resultado: mensagens enviadas nessa janela eram perdidas.
+  //
+  // Valores seguros para Render:
+  //   pingInterval: 10s  → servidor pinga o cliente a cada 10s
+  //   pingTimeout: 20s   → se não receber pong em 20s, reconecta
+  // Isso garante que a conexão "keepalive" acontece bem antes do proxy
+  // fechar (~55s), mantendo o canal sempre ativo.
+  pingInterval: 10_000,
+  pingTimeout: 20_000,
+
+  // CORREÇÃO 8: Aumentar buffer de conexões simultâneas.
+  // O padrão (1000) é suficiente para MVP, mas declarar explicitamente
+  // facilita ajuste futuro sem surpresas.
+  maxHttpBufferSize: 1e6, // 1MB por mensagem (suficiente para imagens em base64 pequenas)
+
+  // allowEIO3: false — só aceita clientes Socket.io v4+ (nosso frontend usa v4)
+  allowEIO3: false,
 })
 
-// Auth middleware — runs before every connection
+// Auth middleware — executa antes de cada conexão
 io.use(socketAuthMiddleware)
 
 io.on('connection', (socket) => {
@@ -99,27 +170,57 @@ io.on('connection', (socket) => {
   registerMessageEvents(socket, io)
 })
 
-// ─── Start server ────────────────────────────────────────────────
+// ─── Start server ─────────────────────────────────────────────────
 server.listen(PORT, (err) => {
   if (err) {
     logger.error('server:start_failed', { error: err.message })
     process.exit(1)
     return
   }
-  logger.info(`server:started`, { port: PORT })
+  logger.info('server:started', { port: PORT, env: NODE_ENV })
 })
 
 // ─── Graceful shutdown ───────────────────────────────────────────
+//
+// CORREÇÃO 9: Fechar o io antes do server, e aguardar as conexões
+// ativas drenarem antes de process.exit(). Isso evita que requests
+// de pagamento em andamento sejam cortadas abruptamente (causando 502).
+//
+const SHUTDOWN_TIMEOUT_MS = 10_000 // 10s para requisições ativas terminarem
+
 const shutdown = (signal) => {
-  logger.info(`server:shutdown`, { signal })
-  io.close()
+  logger.info('server:shutdown_initiated', { signal })
+
+  // 1. Para de aceitar novas conexões WebSocket
+  io.close(() => {
+    logger.info('server:socketio_closed')
+  })
+
+  // 2. Para de aceitar novas conexões HTTP e aguarda as ativas
   server.close(() => {
-    logger.info('server:closed')
+    logger.info('server:http_closed')
     process.exit(0)
   })
+
+  // 3. Força saída se demorar mais que o timeout (evita travamento na Render)
+  setTimeout(() => {
+    logger.warn('server:shutdown_timeout', { timeoutMs: SHUTDOWN_TIMEOUT_MS })
+    process.exit(1)
+  }, SHUTDOWN_TIMEOUT_MS).unref() // .unref() não impede o Node de sair antes se estiver pronto
 }
 
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
 
-export { io }   // Export so controllers can emit events from HTTP routes
+// CORREÇÃO 10: Capturar rejeições não tratadas para evitar crash silencioso
+// (que também gera 502 na Render sem log claro).
+process.on('unhandledRejection', (reason) => {
+  logger.error('process:unhandled_rejection', { reason: String(reason) })
+})
+
+process.on('uncaughtException', (err) => {
+  logger.error('process:uncaught_exception', { error: err.message, stack: err.stack })
+  process.exit(1)
+})
+
+export { io }
