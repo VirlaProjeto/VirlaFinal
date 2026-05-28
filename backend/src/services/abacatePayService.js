@@ -1,4 +1,6 @@
 import dotenv from 'dotenv'
+import { stripCpf } from '../utils/cpf.js'
+import { isValidEmail } from '../utils/email.js'
 
 dotenv.config()
 
@@ -16,91 +18,80 @@ function buildHeaders() {
   }
 }
 
-import { isValidCPF, stripCpf } from '../utils/cpf.js'
-import { isValidEmail } from '../utils/email.js'
+function getFrontendBaseUrl() {
+  return (process.env.FRONTEND_URL ?? 'http://localhost:5173').trim().replace(/\/$/, '')
+}
 
-/**
- * Valida CPF (apenas 11 dígitos com checksum).
- * @param {string} value
- */
-export function validateTaxId(value) {
-  const cleaned = stripCpf(value)
-  if (cleaned.length === 11) {
-    return { valid: isValidCPF(cleaned), cleaned, type: 'CPF' }
+function normalizeQrBase64(raw) {
+  if (!raw) return ''
+  if (raw.startsWith('data:')) {
+    const comma = raw.indexOf(',')
+    return comma === -1 ? raw : raw.slice(comma + 1)
   }
-  return { valid: false, cleaned, type: null }
+  return raw
 }
 
 export function validateEmail(email) {
   return isValidEmail(email)
 }
 
-/**
- * Extrai os campos do QR Code PIX da resposta bruta da AbacatePay.
- *
- * A AbacatePay retorna os dados do PIX dentro do objeto `pix` aninhado:
- *   billing.pix.brCode       → código Pix copia-e-cola
- *   billing.pix.brCodeBase64 → imagem do QR Code em Base64
- *
- * Versões anteriores do código tentavam `pixQrCode` e `pix.code` /
- * `pix.qrCodeBase64`, que não existem na resposta real da API — por
- * isso o QR Code nunca chegava ao cliente.
- *
- * Também sanitizamos o base64: se vier com prefixo "data:image/...;base64,"
- * removemos, pois o frontend já o concatena manualmente.
- *
- * @param {object} billing - Objeto `data` da resposta da AbacatePay
- * @returns {{ pixCode: string, qrCodeBase64: string }}
- */
-function extractPixFields(billing) {
-  // CORREÇÃO PRINCIPAL: campo correto é billing.pix.brCode
-  const pixCode =
-    billing.pix?.brCode ??
-    billing.pix?.qrCode ??
-    billing.pixQrCode ??
-    billing.pix?.code ??
-    ''
+export function validateTaxId(value) {
+  const cleaned = String(value ?? '').replace(/\D/g, '')
+  return { valid: cleaned.length === 11, cleaned, type: cleaned.length === 11 ? 'CPF' : null }
+}
 
-  // CORREÇÃO PRINCIPAL: campo correto é billing.pix.brCodeBase64
-  let qrCodeBase64 =
-    billing.pix?.brCodeBase64 ??
-    billing.pix?.qrCodeBase64 ??
-    billing.pixQrCodeBase64 ??
-    ''
+async function abacatePost(path, body, label = path) {
+  const url = `${ABACATEPAY_API_URL}${path}`
+  console.info(`[AbacatePay] -> ${label}`, JSON.stringify(body))
 
-  // Remove prefixo "data:image/...;base64," se presente
-  if (qrCodeBase64.startsWith('data:')) {
-    const commaIdx = qrCodeBase64.indexOf(',')
-    if (commaIdx !== -1) {
-      qrCodeBase64 = qrCodeBase64.slice(commaIdx + 1)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    })
+    const data = await res.json().catch(() => ({}))
+    console.info(`[AbacatePay] <- ${label} HTTP ${res.status}`, JSON.stringify(data))
+    if (!res.ok) {
+      const msg = data?.error ?? data?.message ?? data?.msg ?? `AbacatePay ${label} HTTP ${res.status}`
+      const error = new Error(msg)
+      error.status = res.status
+      error.responseBody = data
+      throw error
     }
+    return data?.data ?? data
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('AbacatePay: timeout na requisição.')
+    }
+    throw new Error(`AbacatePay: falha de rede — ${err.message}`)
+  } finally {
+    clearTimeout(timeout)
   }
-
-  return { pixCode, qrCodeBase64 }
 }
 
 export function buildBillingPayload({
   user,
   amount,
   description = 'Serviço Virla',
-  returnUrl = process.env.FRONTEND_URL ?? 'http://localhost:5173',
-  completionUrl = `${process.env.FRONTEND_URL ?? 'http://localhost:5173'}/pagamento/sucesso`,
+  returnUrl = getFrontendBaseUrl(),
+  completionUrl = `${getFrontendBaseUrl()}/pagamento/sucesso`,
   frequency = 'ONE_TIME',
-  // NOVO: expiração em segundos — 300 = 5 minutos
   expiresIn = 300,
-}) {
+  externalId,
+} = {}) {
   const taxIdResult = validateTaxId(user.taxId)
-  if (!taxIdResult.valid) {
-    throw new Error(`CPF inválido: "${user.taxId}".`)
-  }
-  if (!validateEmail(user.email)) {
-    throw new Error(`E-mail inválido: "${user.email}".`)
-  }
+  if (!taxIdResult.valid) throw new Error(`CPF inválido: "${user.taxId}".`)
+  if (!validateEmail(user.email)) throw new Error(`E-mail inválido: "${user.email}".`)
   if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
     throw new Error(`Valor inválido: ${amount}. Informe centavos inteiros positivos.`)
   }
 
-  return {
+  const payload = {
+    externalId: externalId ?? `virla-${Date.now()}`,
     frequency,
     methods: ['PIX'],
     products: [
@@ -113,78 +104,111 @@ export function buildBillingPayload({
     ],
     returnUrl,
     completionUrl,
-    // NOVO: define expiração de 5 minutos (300 segundos)
     expiresIn,
-    customer: {
+  }
+
+  const cellphone = user.cellphone ? String(user.cellphone).replace(/\D/g, '') : ''
+  if (user.name && validateEmail(user.email)) {
+    payload.customer = {
       name: user.name,
       email: user.email,
-      taxId: taxIdResult.cleaned,
-      ...(user.cellphone && { cellphone: String(user.cellphone).replace(/\D/g, '') }),
-    },
+      taxId: stripCpf(taxIdResult.cleaned),
+      ...(cellphone && { cellphone }),
+    }
   }
+
+  return payload
+}
+
+export function buildPixQrCodePayload({ user, amount, description = 'Serviço Virla', metadata, expiresInSeconds = 300 } = {}) {
+  const taxIdResult = validateTaxId(user.taxId)
+  if (!taxIdResult.valid) throw new Error(`CPF inválido: "${user.taxId}".`)
+  if (!Number.isFinite(amount) || !Number.isInteger(amount) || amount <= 0) {
+    throw new Error(`Valor inválido: ${amount}. Informe centavos inteiros positivos.`)
+  }
+
+  const payload = {
+    amount,
+    description: String(description).slice(0, 37),
+    expires_in: expiresInSeconds,
+    ...(metadata && Object.keys(metadata).length > 0 && { metadata }),
+  }
+
+  const cellphone = user.cellphone ? String(user.cellphone).replace(/\D/g, '') : ''
+  if (user.name && validateEmail(user.email)) {
+    payload.customer = {
+      name: user.name,
+      email: user.email,
+      taxId: stripCpf(taxIdResult.cleaned),
+      ...(cellphone && { cellphone }),
+    }
+  }
+
+  return payload
+}
+
+function mapPixResponse(pix, { gatewayBillingId = null, checkoutUrl = '' } = {}) {
+  return {
+    billingId: pix.id,
+    gatewayBillingId,
+    pixCode: pix.brCode ?? pix.pixQrCode ?? pix.pix?.code ?? '',
+    qrCodeBase64: normalizeQrBase64(pix.brCodeBase64 ?? pix.pixQrCodeBase64 ?? pix.pix?.qrCodeBase64 ?? ''),
+    checkoutUrl: checkoutUrl || pix.url || pix.checkoutUrl || '',
+    status: pix.status ?? 'PENDING',
+    expiresAt: pix.expiresAt ?? pix.expireAt ?? null,
+    devMode: pix.devMode ?? false,
+    rawResponse: pix,
+  }
+}
+
+export async function createHostedBilling(params) {
+  const externalId = `virla-${Date.now()}`
+  const payload = buildBillingPayload({ ...params, externalId })
+  const billing = await abacatePost('/billing/create', payload, 'billing/create')
+  console.info(`[AbacatePay] Cobrança registrada no painel: ${billing.id} (devMode=${billing.devMode ?? '?'})`)
+  return billing
+}
+
+export async function createPixQrCharge(params, { linkedBillingId } = {}) {
+  const metadata = {
+    virlaSource: 'virla-app',
+    ...(linkedBillingId && { virlaBillingId: linkedBillingId }),
+  }
+  const payload = buildPixQrCodePayload({ ...params, metadata, expiresInSeconds: 300 })
+  const pix = await abacatePost('/pixQrCode/create', payload, 'pixQrCode/create')
+  console.info(`[AbacatePay] PIX QR criado: ${pix.id} (devMode=${pix.devMode ?? '?'})`)
+  return pix
 }
 
 export async function createBilling(params) {
-  const payload = buildBillingPayload(params)
+  const externalId = `virla-${Date.now()}`
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15_000)
-
-  let response
-  try {
-    response = await fetch(`${ABACATEPAY_API_URL}/billing/create`, {
-      method: 'POST',
-      headers: buildHeaders(),
-      body: JSON.stringify(payload),
-      signal: controller.signal,
+  const hosted = await createHostedBilling({ ...params, externalId }).catch((err) => {
+    console.error('[AbacatePay] FALHA billing/create:', {
+      message: err.message,
+      status: err.status,
+      responseBody: err.responseBody,
     })
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('AbacatePay: timeout na criação da cobrança.')
-    }
-    throw new Error(`AbacatePay: falha de rede — ${err.message}`)
-  } finally {
-    clearTimeout(timeout)
-  }
-
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const msg =
-      data?.error ??
-      `AbacatePay HTTP ${response.status}: ${JSON.stringify(data)}`
-    throw new Error(msg)
-  }
-
-  const billing = data?.data ?? data
-
-  // Log de diagnóstico: ajuda a identificar alterações futuras nos campos da API
-  console.info('[AbacatePay] Campos retornados na cobrança:', {
-    id: billing.id,
-    status: billing.status,
-    pixKeys: billing.pix ? Object.keys(billing.pix) : 'pix ausente',
-    topLevelKeys: Object.keys(billing),
+    throw err
   })
 
-  const { pixCode, qrCodeBase64 } = extractPixFields(billing)
+  const pix = await createPixQrCharge(params, { linkedBillingId: hosted.id }).catch((err) => {
+    console.error('[AbacatePay] FALHA pixQrCode/create:', { message: err.message, status: err.status })
+    throw err
+  })
 
-  return {
-    billingId: billing.id,
-    pixCode,
-    qrCodeBase64,
-    checkoutUrl: billing.url ?? billing.checkoutUrl ?? '',
-    status: billing.status ?? 'PENDING',
-    rawResponse: billing,
-  }
+  return mapPixResponse(pix, { gatewayBillingId: hosted.id, checkoutUrl: hosted.url ?? hosted.checkoutUrl })
 }
 
 export async function getBillingStatus(billingId) {
-  const response = await fetch(`${ABACATEPAY_API_URL}/billing/${billingId}`, {
-    method: 'GET',
-    headers: buildHeaders(),
-  })
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(`AbacatePay status check failed (HTTP ${response.status})`)
+  // Query the PIX check endpoint which is the reliable source for payment status
+  const url = `${ABACATEPAY_API_URL}/pixQrCode/check?id=${encodeURIComponent(billingId)}`
+  const res = await fetch(url, { method: 'GET', headers: buildHeaders() })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(`AbacatePay status check failed (HTTP ${res.status})`)
   }
-  return data?.data ?? data
+  const payload = data?.data ?? data
+  return { status: payload.status ?? 'PENDING', expiresAt: payload.expiresAt ?? payload.expireAt ?? null }
 }
+ 

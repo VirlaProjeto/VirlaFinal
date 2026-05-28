@@ -1,5 +1,3 @@
-// Familiar paga cobrança gerada pelo cuidador (PIX + escrow).
-
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import ArrowBack from '@mui/icons-material/ArrowBack'
@@ -10,6 +8,8 @@ import ErrorIcon from '@mui/icons-material/Error'
 import VerifiedUser from '@mui/icons-material/VerifiedUser'
 import Schedule from '@mui/icons-material/Schedule'
 import Smartphone from '@mui/icons-material/Smartphone'
+import Replay from '@mui/icons-material/Replay'
+import { toast } from 'sonner'
 import api from '../../services/api'
 import { FIELD_CLASS } from '../../constants/formStyles'
 import { ButtonSpinner, InlineSpinner } from '../../components/Spinner'
@@ -37,10 +37,6 @@ export default function Pagamento() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Os dados chegam via location.state (enviados pelo componente de chat/cobrança).
-  // O AppShell já garante que amount e payeeId estão presentes antes de renderizar
-  // este componente (via PagamentoRoute), mas mantemos as verificações locais como
-  // segunda linha de defesa.
   const {
     amount,
     baseAmount,
@@ -56,20 +52,18 @@ export default function Pagamento() {
   const [billing, setBilling] = useState(null)
   const [copied, setCopied] = useState(false)
   const [status, setStatus] = useState('PENDING')
+  const [expiredByTimer, setExpiredByTimer] = useState(false)
 
   const pollRef = useRef(null)
   const myRole = localStorage.getItem('meuRole')
 
-  // Aviso imediato caso o role seja inválido (sem bloquear — AppShell já bloqueou
-  // acesso de não-autenticados; aqui só avisamos sobre role errado).
   useEffect(() => {
     if (myRole && myRole !== 'FAMILIAR') {
       setError('Apenas familiares podem executar o pagamento. Peça ao cuidador para gerar a cobrança.')
     }
   }, [myRole])
 
-  // Polling de status: inicia assim que o billingId existir e para ao confirmar
-  // pagamento ou ao desmontar o componente.
+  // Polling de status
   useEffect(() => {
     if (!billing?.billingId || status === 'PAID') return
 
@@ -78,25 +72,54 @@ export default function Pagamento() {
         const res = await api.get(`/payments/billing/${billing.billingId}/status`)
         const s = res.data.status
         setStatus(s)
+        
         if (s === 'PAID') {
           clearInterval(pollRef.current)
-          // Pagamento confirmado: grava flag de sessão para liberar /pagamento/sucesso
           sessionStorage.setItem('virla_pag_sessao', 'true')
-          setTimeout(() => navigate('/pagamento/sucesso'), 1500)
+          toast.success('Pagamento aprovado com sucesso!')
+          
+          setTimeout(() => {
+            navigate('/pagamento/sucesso', {
+              state: {
+                billingId: billing.billingId,
+                amount,
+                description,
+                paidAt: res.data.paidAt ?? new Date().toISOString(),
+                status: s,
+              }
+            })
+          }, 1000)
+        } else if (s === 'EXPIRED' || s === 'CANCELED') {
+          clearInterval(pollRef.current)
+          toast.warning('Esse QR Code expirou. Gere um novo para continuar.')
         }
       } catch {
-        /* silencia erros transitórios — o polling tentará novamente */
+        // silencia erros transitórios
       }
-    }, 5_000)
+    }, 5000)
 
     return () => clearInterval(pollRef.current)
-  }, [billing, status, navigate])
+  }, [billing, status, navigate, amount, description])
+
+  useEffect(() => {
+    if (!billing?.expiresAt || status === 'PAID') return
+    const timeoutMs = new Date(billing.expiresAt).getTime() - Date.now()
+    if (timeoutMs <= 0) {
+      setExpiredByTimer(true)
+      setStatus('EXPIRED')
+      return
+    }
+    const t = setTimeout(() => {
+      setExpiredByTimer(true)
+      setStatus('EXPIRED')
+      toast.warning('QR Code expirado após 5 minutos.')
+    }, timeoutMs)
+    return () => clearTimeout(t)
+  }, [billing, status])
 
   function maskPhone(v) {
     const d = v.replace(/\D/g, '').slice(0, 11)
-    return d
-      .replace(/^(\d{2})(\d)/, '($1) $2')
-      .replace(/(\d{5})(\d)/, '$1-$2')
+    return d.replace(/^(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2')
   }
 
   async function handleGeneratePIX() {
@@ -125,14 +148,9 @@ export default function Pagamento() {
         payeeId,
         chargeRequestId,
       })
-
-      // Grava flag de sessão imediatamente ao receber dados válidos da API.
-      // Isso libera o acesso a /pagamento/sucesso quando o pagamento for confirmado.
+      
       sessionStorage.setItem('virla_pag_sessao', 'true')
-
       setBilling(res.data)
-      // A AbacatePay pode retornar status "ACTIVE" (cobrança ativa aguardando PIX).
-      // Normalizamos para "PENDING" internamente para a UI.
       const initialStatus = res.data.status === 'ACTIVE' ? 'PENDING' : (res.data.status ?? 'PENDING')
       setStatus(initialStatus)
     } catch (err) {
@@ -161,6 +179,7 @@ export default function Pagamento() {
   }
 
   const canPay = amount && payeeId && (!myRole || myRole === 'FAMILIAR')
+  const isExpired = status === 'EXPIRED' || status === 'CANCELED' || expiredByTimer
 
   return (
     <div className="min-h-screen pt-16 bg-virla-neve flex items-start justify-center px-4 py-10"
@@ -172,7 +191,6 @@ export default function Pagamento() {
             type="button"
             onClick={() => navigate(-1)}
             className="p-2 rounded-xl text-virla-roxo hover:bg-virla-roxo/10 transition-colors"
-            aria-label="Voltar"
           >
             <ArrowBack sx={{ fontSize: 22 }} />
           </button>
@@ -192,9 +210,7 @@ export default function Pagamento() {
             </p>
           )}
           <p className="text-4xl font-black" style={{ fontFamily: "'Playfair Display', serif" }}>
-            {amount != null
-              ? formatCentsBRL(amount)
-              : '—'}
+            {amount != null ? formatCentsBRL(amount) : '—'}
           </p>
           {billing && (
             <div className="mt-3">
@@ -257,19 +273,12 @@ export default function Pagamento() {
               type="button"
               onClick={handleGeneratePIX}
               disabled={loading || !canPay}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl
-                         bg-virla-roxo hover:bg-virla-roxohighlight text-white font-semibold
-                         shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5
-                         disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-virla-roxo hover:bg-virla-roxohighlight text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0"
             >
               {loading ? (
-                <>
-                  <ButtonSpinner size={20} /> Gerando PIX…
-                </>
+                <> <ButtonSpinner size={20} /> Gerando PIX… </>
               ) : (
-                <>
-                  <QrCode sx={{ fontSize: 20 }} /> Gerar QR Code PIX
-                </>
+                <> <QrCode sx={{ fontSize: 20 }} /> Gerar QR Code PIX </>
               )}
             </button>
           </div>
@@ -298,15 +307,11 @@ export default function Pagamento() {
             )}
 
             <div className="flex items-center gap-3 text-virla-texto/30 text-xs font-medium uppercase tracking-widest">
-              <div className="flex-1 h-px bg-virla-roxo/10" />
-              ou copie o código
-              <div className="flex-1 h-px bg-virla-roxo/10" />
+              <div className="flex-1 h-px bg-virla-roxo/10" /> ou copie o código <div className="flex-1 h-px bg-virla-roxo/10" />
             </div>
 
             <div className="space-y-2">
-              <p className="text-xs font-semibold text-virla-texto/60 uppercase tracking-widest">
-                PIX Copia e Cola
-              </p>
+              <p className="text-xs font-semibold text-virla-texto/60 uppercase tracking-widest">PIX Copia e Cola</p>
               <div className="flex items-stretch gap-2">
                 <div className="flex-1 min-w-0 px-3 py-2.5 rounded-xl bg-virla-roxo/5 border border-virla-roxo/15 text-xs text-virla-texto/70 font-mono break-all select-all leading-relaxed">
                   {billing.pixCode || '—'}
@@ -315,10 +320,7 @@ export default function Pagamento() {
                   type="button"
                   onClick={handleCopy}
                   disabled={!billing.pixCode}
-                  aria-label="Copiar código PIX"
-                  className={`flex-shrink-0 w-12 rounded-xl flex items-center justify-center transition-all duration-200
-                    ${copied ? 'bg-green-500 text-white' : 'bg-virla-roxo text-white hover:bg-virla-roxohighlight'}
-                    disabled:opacity-40 disabled:cursor-not-allowed`}
+                  className={`flex-shrink-0 w-12 rounded-xl flex items-center justify-center transition-all duration-200 ${copied ? 'bg-green-500 text-white' : 'bg-virla-roxo text-white hover:bg-virla-roxohighlight'} disabled:opacity-40 disabled:cursor-not-allowed`}
                 >
                   {copied ? <DoneAll sx={{ fontSize: 20 }} /> : <ContentCopy sx={{ fontSize: 20 }} />}
                 </button>
@@ -330,10 +332,30 @@ export default function Pagamento() {
               )}
             </div>
 
-            {status !== 'PAID' && (
+            {!isExpired && status !== 'PAID' && (
               <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-sm">
                 <InlineSpinner size={18} />
                 <span>Aguardando confirmação do pagamento. Esta página atualiza automaticamente.</span>
+              </div>
+            )}
+
+            {isExpired && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+                  <ErrorIcon sx={{ fontSize: 18 }} className="flex-shrink-0 mt-0.5" />
+                  <span>QR Code expirado. Gere um novo código para concluir o pagamento.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBilling(null)
+                    setStatus('PENDING')
+                    setExpiredByTimer(false)
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-virla-roxo/20 text-virla-roxo hover:bg-virla-roxo/5"
+                >
+                  <Replay sx={{ fontSize: 18 }} /> Gerar novo QR Code
+                </button>
               </div>
             )}
 
@@ -343,24 +365,8 @@ export default function Pagamento() {
                 Pagamento confirmado! Redirecionando…
               </div>
             )}
-
-            {billing.checkoutUrl && status !== 'PAID' && (
-              <a
-                href={billing.checkoutUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="block text-center text-xs text-virla-roxo hover:underline font-medium"
-              >
-                Abrir página de pagamento AbacatePay →
-              </a>
-            )}
           </div>
         )}
-
-        <p className="text-center text-xs text-virla-texto/40 flex items-center justify-center gap-1.5">
-          <VerifiedUser sx={{ fontSize: 14 }} className="text-virla-roxo/40" />
-          Pagamento processado com segurança pela AbacatePay
-        </p>
       </div>
     </div>
   )

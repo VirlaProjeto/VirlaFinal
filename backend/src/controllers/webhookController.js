@@ -11,7 +11,11 @@ const WEBHOOK_SECRET = process.env.ABACATEPAY_WEBHOOK_SECRET ?? ''
  */
 function verifySignature(rawBody, signature) {
   if (!WEBHOOK_SECRET) {
-    console.warn('[webhook] ABACATEPAY_WEBHOOK_SECRET ausente — verificação desativada (dev).')
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[webhook] ABACATEPAY_WEBHOOK_SECRET não configurado em produção. Rejeitando.')
+      return false
+    }
+    console.warn('[webhook] Verificação de assinatura desativada (dev mode).')
     return true
   }
 

@@ -4,6 +4,14 @@ import { createEscrowForPayment, holdEscrowFunds } from '../services/escrowServi
 import { validateAmountCents } from '../utils/validation.js'
 import { markChargePaidForPayment } from '../services/chargeRequestService.js'
 
+function normalizeGatewayStatus(status) {
+  const up = String(status ?? '').toUpperCase()
+  if (up === 'PAID') return 'PAID'
+  if (up === 'EXPIRED') return 'EXPIRED'
+  if (up === 'CANCELED' || up === 'CANCELLED') return 'CANCELED'
+  return 'PENDING'
+}
+
 /**
  * POST /payments/billing
  * Apenas FAMILIAR: paga cobrança PIX; valor deve bater com ChargeRequest quando informado.
@@ -102,6 +110,9 @@ export const initiateBilling = async (req, res) => {
       qrCodeBase64: billing.qrCodeBase64,
       checkoutUrl: billing.checkoutUrl,
       status: billing.status,
+      gatewayBillingId: billing.gatewayBillingId ?? null,
+      expiresAt: billing.expiresAt ?? null,
+      devMode: billing.devMode ?? false,
       escrowId: escrow.id,
       escrowStatus: escrow.status,
       paymentId: payment.id,
@@ -135,13 +146,19 @@ export const pollBillingStatus = async (req, res) => {
     }
 
     const billing = await getBillingStatus(billingId)
-    const gatewayStatus = billing.status ?? 'UNKNOWN'
+    const gatewayStatus = normalizeGatewayStatus(billing.status)
+
+    if (gatewayStatus !== payment.status) {
+      await prisma.payment.updateMany({
+        where: { billingId, status: { not: gatewayStatus } },
+        data: {
+          status: gatewayStatus,
+          paidAt: gatewayStatus === 'PAID' ? new Date() : null,
+        },
+      })
+    }
 
     if (gatewayStatus === 'PAID' && payment.status !== 'PAID') {
-      await prisma.payment.updateMany({
-        where: { billingId, status: { not: 'PAID' } },
-        data: { status: 'PAID', paidAt: new Date() },
-      })
       await holdEscrowFunds(payment.id)
       await markChargePaidForPayment(payment.id)
     }
@@ -153,8 +170,10 @@ export const pollBillingStatus = async (req, res) => {
 
     return res.status(200).json({
       status: fresh.status,
+      paidAt: fresh.paidAt,
       escrowStatus: fresh.escrow?.status ?? null,
       escrowId: fresh.escrow?.id ?? null,
+      expiresAt: billing.expiresAt ?? null,
     })
   } catch (err) {
     console.error('[paymentController] pollBillingStatus:', err.message)

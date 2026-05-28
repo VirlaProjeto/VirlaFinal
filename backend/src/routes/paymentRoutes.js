@@ -56,9 +56,10 @@ PaymentRoutes.post(
   '/webhooks/abacatepay',
   express.raw({ type: 'application/json' }),
   (req, _res, next) => {
-    req.rawBody = req.body?.toString('utf8') ?? ''
+    const raw = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : ''
+    req.rawBody = raw
     try {
-      req.body = JSON.parse(req.rawBody)
+      req.body = JSON.parse(raw)
     } catch {
       req.body = {}
     }

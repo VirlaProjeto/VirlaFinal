@@ -91,6 +91,9 @@ export const getMessageHistory = async (req, res) => {
         const me = req.userId
         const otherId = req.params.userId
 
+        if (!otherId) { return res.status(400).json({ msg: "Usuário inválido" }) }
+        if (otherId === me) { return res.status(400).json({ msg: "Conversa inválida" }) }
+
         const other = await prisma.user.findUnique({
             where: { id: otherId },
             select: { id: true, name: true, role: true, profileImage: true, approach: true, crm_crf: true },
@@ -119,8 +122,11 @@ export const getMessageHistory = async (req, res) => {
 
         res.status(200).json({ peer: other, messages: decryptedMessages })
     } catch (e) {
+        const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
         console.error(e)
-        res.status(500).json({ msg: "Erro ao buscar mensagens" })
+        res.status(dbDown ? 503 : 500).json({
+            msg: dbDown ? 'Não foi possível conectar ao banco de dados...' : 'Erro ao buscar mensagens',
+        })
     }
 }
 
@@ -152,10 +158,17 @@ export const getConversations = async (req, res) => {
             })
         }
 
-        res.status(200).json({ conversations: [...byPeer.values()] })
+        const conversations = [...byPeer.values()].sort(
+            (a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt)
+        )
+
+        res.status(200).json({ conversations })
     } catch (e) {
+        const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
         console.error(e)
-        res.status(500).json({ msg: "Erro ao listar conversas" })
+        res.status(dbDown ? 503 : 500).json({
+            msg: dbDown ? 'Não foi possível conectar ao banco de dados...' : 'Erro ao listar conversas',
+        })
     }
 }
 
