@@ -201,14 +201,39 @@ export async function createBilling(params) {
 }
 
 export async function getBillingStatus(billingId) {
-  // Query the PIX check endpoint which is the reliable source for payment status
-  const url = `${ABACATEPAY_API_URL}/pixQrCode/check?id=${encodeURIComponent(billingId)}`
-  const res = await fetch(url, { method: 'GET', headers: buildHeaders() })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(`AbacatePay status check failed (HTTP ${res.status})`)
+  const url = `${ABACATEPAY_API_URL}/pixQrCode/check?id=${encodeURIComponent(billingId)}`;
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // Timeout de 8 segundos
+
+  try {
+    const res = await fetch(url, { 
+      method: 'GET', 
+      headers: buildHeaders(),
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(`AbacatePay status check failed (HTTP ${res.status}): ${JSON.stringify(data)}`);
+    }
+    
+    const payload = data?.data ?? data;
+    return { 
+      status: payload.status ?? 'PENDING', 
+      expiresAt: payload.expiresAt ?? payload.expireAt ?? null 
+    };
+
+  } catch (err) {
+    clearTimeout(timeoutId);
+    
+    if (err.name === 'AbortError') {
+      console.warn(`[AbacatePay] Timeout ao consultar status do PIX ${billingId}`);
+      return { status: 'PENDING', expiresAt: null }; 
+    }
+    
+    throw err;
   }
-  const payload = data?.data ?? data
-  return { status: payload.status ?? 'PENDING', expiresAt: payload.expiresAt ?? payload.expireAt ?? null }
 }
- 

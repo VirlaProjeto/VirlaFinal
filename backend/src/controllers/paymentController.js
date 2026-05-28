@@ -12,10 +12,6 @@ function normalizeGatewayStatus(status) {
   return 'PENDING'
 }
 
-/**
- * POST /payments/billing
- * Apenas FAMILIAR: paga cobrança PIX; valor deve bater com ChargeRequest quando informado.
- */
 export const initiateBilling = async (req, res) => {
   try {
     const userId = req.userId
@@ -124,10 +120,6 @@ export const initiateBilling = async (req, res) => {
   }
 }
 
-/**
- * GET /payments/billing/:billingId/status
- * Apenas o dono do pagamento pode consultar.
- */
 export const pollBillingStatus = async (req, res) => {
   try {
     const { billingId } = req.params
@@ -145,8 +137,33 @@ export const pollBillingStatus = async (req, res) => {
       return res.status(403).json({ msg: 'Acesso negado.' })
     }
 
-    const billing = await getBillingStatus(billingId)
-    const gatewayStatus = normalizeGatewayStatus(billing.status)
+    // Se já estiver pago no nosso banco, responde direto
+    if (payment.status === 'PAID') {
+      return res.status(200).json({
+        status: 'PAID',
+        paidAt: payment.paidAt,
+        escrowStatus: payment.escrow?.status ?? null,
+        escrowId: payment.escrow?.id ?? null,
+        expiresAt: null,
+      })
+    }
+
+    let billing;
+    try {
+      billing = await getBillingStatus(billingId);
+    } catch (apiError) {
+      console.warn(`[Pagamento] Falha na API externa para o PIX ${billingId}:`, apiError.message);
+      // Degradação graciosa: Se a API falhar ou der timeout, mantemos o status atual (PENDING)
+      return res.status(200).json({
+        status: payment.status,
+        paidAt: payment.paidAt,
+        escrowStatus: payment.escrow?.status ?? null,
+        escrowId: payment.escrow?.id ?? null,
+        expiresAt: null,
+      });
+    }
+
+    const gatewayStatus = normalizeGatewayStatus(billing.status);
 
     if (gatewayStatus !== payment.status) {
       await prisma.payment.updateMany({
@@ -156,11 +173,11 @@ export const pollBillingStatus = async (req, res) => {
           paidAt: gatewayStatus === 'PAID' ? new Date() : null,
         },
       })
-    }
 
-    if (gatewayStatus === 'PAID' && payment.status !== 'PAID') {
-      await holdEscrowFunds(payment.id)
-      await markChargePaidForPayment(payment.id)
+      if (gatewayStatus === 'PAID') {
+        await holdEscrowFunds(payment.id)
+        await markChargePaidForPayment(payment.id)
+      }
     }
 
     const fresh = await prisma.payment.findUnique({
