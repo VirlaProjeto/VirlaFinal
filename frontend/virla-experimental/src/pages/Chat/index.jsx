@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useNavigate, useParams, Link } from 'react-router-dom'
-
 import ArrowBack from '@mui/icons-material/ArrowBack'
 import Send from '@mui/icons-material/Send'
 import Person from '@mui/icons-material/Person'
@@ -41,11 +40,9 @@ export default function Chat() {
   const [peerTyping, setPeerTyping] = useState(false)
 
   const listRef = useRef(null)
-  const isChatVisible = useRef(true)
 
   const { isRecording, startRecording, stopRecording, audioBlob, clearAudio } = useAudioRecorder()
 
-  // --- NOVO: ZERA A CONTAGEM AO ENTRAR NA CONVERSA ---
   useEffect(() => {
     if (peerId) {
       api.patch(`/messages/read/${peerId}`).catch(err => console.error("Erro ao marcar lidas", err))
@@ -55,17 +52,6 @@ export default function Chat() {
   const scrollToBottom = useCallback(() => {
     const el = listRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [])
-
-  useEffect(() => {
-    const onFocus = () => { isChatVisible.current = true }
-    const onBlur  = () => { isChatVisible.current = false }
-    window.addEventListener('focus', onFocus)
-    window.addEventListener('blur',  onBlur)
-    return () => {
-      window.removeEventListener('focus', onFocus)
-      window.removeEventListener('blur',  onBlur)
-    }
   }, [])
 
   const loadPendingCharge = useCallback(async () => {
@@ -117,16 +103,7 @@ export default function Chat() {
         await fetchHistory()
         await loadPendingCharge()
       } catch (e) {
-        console.error(e)
-        if (!cancelled) {
-          const status = e.response?.status
-          if (status === 401 || status === 403) {
-            localStorage.clear()
-            navigate('/login')
-          } else {
-            navigate('/feed')
-          }
-        }
+        if (!cancelled) navigate('/feed')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -143,8 +120,8 @@ export default function Chat() {
     setMessages((prev) => {
       const exists = prev.some((m) => m.id === message.id)
       if (exists) return prev
-      const withoutOptimistic = prev.filter((m) => !m._optimistic)
-      return [...withoutOptimistic, message]
+      // Apenas adiciona a nova mensagem, não apaga as otimistas que você mandou!
+      return [...prev, message]
     })
   }, [peerId, meId])
 
@@ -153,11 +130,18 @@ export default function Chat() {
     if (isTyping) setTimeout(() => setPeerTyping(false), 3000)
   }, [])
 
+  // Atualiza as mensagens na tela para "Lidas" (✓✓)
+  const handleReadAck = useCallback(({ readerId }) => {
+    if (readerId === peerId) {
+      setMessages(prev => prev.map(m => m.senderId === meId ? { ...m, read: true } : m))
+    }
+  }, [peerId, meId])
+
   const { socket, sendMessage, emitTyping, emitRead, isConnected } = useSocket({
     peerId,
     onMessage: handleIncomingMessage,
     onTyping: handleTyping,
-    isChatVisible: isChatVisible.current
+    onReadAck: handleReadAck
   })
 
   useEffect(() => {
@@ -178,9 +162,7 @@ export default function Chat() {
         formData.append('audio', audioBlob, 'gravacao.webm')
         formData.append('receiverId', peerId)
 
-        // --- CORREÇÃO: RETIREI O HEADER QUE ESTAVA CAUSANDO ERRO ---
         const res = await api.post('/messages/audio', formData)
-
         const novaMensagem = res.data.message
         
         setMessages((prev) => [...prev, novaMensagem])
@@ -188,7 +170,6 @@ export default function Chat() {
         
         clearAudio()
       } catch (err) {
-        console.error("Erro ao enviar áudio:", err)
         alert("Não foi possível enviar o áudio.")
       } finally {
         setSending(false)
@@ -208,20 +189,19 @@ export default function Chat() {
       content: text,
       senderId: meId,
       receiverId: peerId,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      read: false
     }
     setMessages((prev) => [...prev, optimistic])
 
     try {
       await sendMessage({ receiverId: peerId, content: text })
     } catch (err) {
-      console.error('Erro no socket, tentando fallback HTTP...', err)
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id))
       try {
         await api.post('/messages', { receiverId: peerId, content: text })
         await fetchHistory()
       } catch (httpErr) {
-        console.error('Falha no fallback HTTP', httpErr)
         alert('Não foi possível enviar a mensagem.')
       }
     } finally {
@@ -329,7 +309,7 @@ export default function Chat() {
               <div
                 className={`max-w-[85%] sm:max-w-[70%] rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-opacity duration-200
                   ${mine ? 'bg-virla-roxo text-white rounded-br-md' : 'bg-white text-virla-texto border border-virla-roxo/10 rounded-bl-md'}
-                  ${m._optimistic ? 'opacity-60' : 'opacity-100'}
+                  ${m._optimistic ? 'opacity-70' : 'opacity-100'}
                 `}
               >
                 {m.audioUrl ? (
@@ -338,8 +318,14 @@ export default function Chat() {
                   <p className="whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
                 )}
                 
-                <p className={`text-[10px] mt-1.5 ${mine ? 'text-white/70' : 'text-virla-texto/40'}`}>
+                {/* Sistema visual de horário e visualização (✓✓) */}
+                <p className={`text-[10px] mt-1.5 flex items-center gap-1 ${mine ? 'text-white/70 justify-end' : 'text-virla-texto/40 justify-start'}`}>
                   {new Date(m.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  {mine && !m._optimistic && (
+                    <span className={m.read ? 'text-blue-300' : 'text-white/50'}>
+                      {m.read ? '✓✓' : '✓'}
+                    </span>
+                  )}
                 </p>
               </div>
             </div>
@@ -411,7 +397,6 @@ export default function Chat() {
               {sending ? <ButtonSpinner size={22} /> : <Send sx={{ fontSize: 22 }} />}
             </button>
           )}
-
         </div>
       </form>
 

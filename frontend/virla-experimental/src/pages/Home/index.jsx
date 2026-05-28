@@ -11,6 +11,8 @@ import Schedule from '@mui/icons-material/Schedule'
 import Chat from '@mui/icons-material/Chat'
 import Payments from '@mui/icons-material/Payments'
 import LocalOffer from '@mui/icons-material/LocalOffer'
+import WorkspacePremium from '@mui/icons-material/WorkspacePremium'
+import VolunteerActivism from '@mui/icons-material/VolunteerActivism'
 import api from '../../services/api'
 import { calculateAge, formatDateBR } from '../../utils/dateUtils'
 import { formatHourly } from '../../utils/formatters'
@@ -51,10 +53,8 @@ export default function Home() {
   const [conversations, setConversations] = useState([])
   const [convLoading, setConvLoading] = useState(false)
   
-  // --- ESTADO DO CONTADOR DE NÃO LIDAS ---
   const [unreadCount, setUnreadCount] = useState(0)
 
-  // --- BUSCAR CONTADOR DE NÃO LIDAS ---
   const fetchUnreadCount = useCallback(async () => {
     try {
       const res = await api.get('/messages/unread-count')
@@ -125,6 +125,34 @@ export default function Home() {
     setSearchParams(tab === 'mensagens' ? { tab: 'mensagens' } : {})
   }
 
+  // --- LÓGICA DE VERIFICAÇÃO DE PERFIL COMPLETO ---
+  // Analisa se falta alguma informação vital baseado no tipo de conta
+  const isProfileIncomplete = () => {
+    if (!userData) return false;
+
+    if (userData.role === 'CUIDADOR') {
+      return (
+        !userData.birthDate ||
+        !userData.bio ||
+        !userData.profileImage ||
+        userData.hourlyRate == null ||
+        !userData.crm_crf ||
+        !userData.city ||
+        !userData.state
+      );
+    }
+
+    if (userData.role === 'FAMILIAR') {
+      return (
+        !userData.birthDate ||
+        !userData.bio ||
+        !userData.profileImage
+      );
+    }
+
+    return false;
+  };
+
   if (loading || !userData) {
     return (
       <PageLoader label="Carregando painel…">
@@ -138,6 +166,7 @@ export default function Home() {
   const age = calculateAge(userData?.birthDate)
   const rateLabel = formatHourly(userData?.hourlyRate)
   const specialties = Array.isArray(userData?.specialties) ? userData.specialties : []
+  const showBanner = isProfileIncomplete();
 
   return (
     <div
@@ -148,6 +177,8 @@ export default function Home() {
       }}
     >
       <div className="max-w-4xl mx-auto px-6 py-10">
+        
+        {/* CABEÇALHO ROXO DO PERFIL */}
         <div className="bg-virla-roxo rounded-3xl p-8 text-white mb-6 shadow-lg relative overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4 pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-40 h-40 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/4 pointer-events-none" />
@@ -200,6 +231,51 @@ export default function Home() {
           </div>
         </div>
 
+        {/* ========================================= */}
+        {/* BANNER DE GAMIFICAÇÃO / BOAS-VINDAS */}
+        {/* ========================================= */}
+        {showBanner && userData?.role === 'CUIDADOR' && (
+          <div className="bg-blue-50/80 backdrop-blur-sm border border-blue-100 border-l-4 border-l-blue-500 text-blue-900 p-4 mb-6 rounded-xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-all hover:shadow-md">
+            <div className="flex items-start gap-3 flex-1">
+              <WorkspacePremium sx={{ fontSize: 24 }} className="text-blue-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-sm">O seu perfil está incompleto!</p>
+                <p className="text-xs mt-1 text-blue-800/80">
+                  Preencha todas as suas informações (Foto, Bio, CRM/CRF, Valores e Localização) para passar mais confiança aos familiares e receber mais propostas de trabalho.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/perfil')}
+              className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all hover:-translate-y-0.5 whitespace-nowrap"
+            >
+              Completar Perfil
+            </button>
+          </div>
+        )}
+
+        {showBanner && userData?.role === 'FAMILIAR' && (
+          <div className="bg-emerald-50/80 backdrop-blur-sm border border-emerald-100 border-l-4 border-l-emerald-500 text-emerald-900 p-4 mb-6 rounded-xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center gap-4 transition-all hover:shadow-md">
+            <div className="flex items-start gap-3 flex-1">
+              <VolunteerActivism sx={{ fontSize: 24 }} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-sm">O seu perfil está incompleto!</p>
+                <p className="text-xs mt-1 text-emerald-800/80">
+                  Adicione uma foto, sua data de nascimento e uma apresentação detalhada para que os profissionais saibam exatamente como ajudar.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/perfil')}
+              className="w-full sm:w-auto px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold uppercase tracking-wider rounded-xl shadow-sm transition-all hover:-translate-y-0.5 whitespace-nowrap"
+            >
+              Completar Perfil
+            </button>
+          </div>
+        )}
+        {/* ========================================= */}
+
+        {/* NAVEGAÇÃO DE ABAS */}
         <div className="flex gap-2 mb-6 p-1 bg-white/60 rounded-2xl border border-virla-roxo/10 shadow-sm w-fit">
           <button
             type="button"
@@ -214,7 +290,6 @@ export default function Home() {
             Painel
           </button>
           
-          {/* --- BOTÃO MENSAGENS COM A BOLINHA VERMELHA --- */}
           <button
             type="button"
             onClick={() => selectTab('mensagens')}
