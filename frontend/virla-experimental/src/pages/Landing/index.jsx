@@ -12,7 +12,7 @@ function Landing() {
   const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [loadingBtn, setLoadingBtn] = useState(null); // Estado para o Efeito Uau dos botões
+  const [loadingBtn, setLoadingBtn] = useState(null); 
 
   // ── Dados do Carrossel Principal ──
   const carouselItems = [
@@ -38,7 +38,7 @@ function Landing() {
     }
   ];
 
-  // ── Dados dos Cards Flutuantes (Sincronizados com o Carrossel) ──
+  // ── Dados dos Cards Flutuantes ──
   const floatingStatsLeft = [
     { num: "33 M", label: "Idosos no Brasil", icon: <Face sx={{ fontSize: 24, color: '#92400e' }} />, bg: "bg-yellow-100" },
     { num: "Seguro", label: "Sistema Escrow", icon: <AttachMoney sx={{ fontSize: 24, color: '#166534' }} />, bg: "bg-green-100" },
@@ -68,7 +68,6 @@ function Landing() {
     }, { threshold: 0.12 });
     revealEls.forEach(el => revealObserver.observe(el));
 
-    // Timer do Carrossel (A cada 4.5 segundos)
     const sliderTimer = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % carouselItems.length);
     }, 4500);
@@ -86,12 +85,11 @@ function Landing() {
     };
   }, [carouselItems.length]);
 
-  // Função para dar o feedback visual de carregamento antes de navegar
   const handleNavigate = (path, actionName) => {
     setLoadingBtn(actionName);
     setTimeout(() => {
       navigate(path);
-    }, 600); // 600ms de atraso para o usuário ver o spinner girando
+    }, 600);
   };
 
   return (
@@ -196,7 +194,6 @@ function Landing() {
 
           <div className="hero-visual relative z-0">
             <div className="hero-card-main relative">
-              {/* Carrossel Dinâmico */}
               <div 
                 key={currentSlide} 
                 className="hero-img-placeholder flex flex-col items-center justify-center p-8 text-center gap-4 transition-opacity duration-500 ease-in-out animate-[fadeIn_0.5s_ease-in-out]"
@@ -210,7 +207,6 @@ function Landing() {
                 </div>
               </div>
               
-              {/* Indicadores do Carrossel */}
               <div className="absolute bottom-6 left-0 right-0 flex justify-center gap-2">
                 {carouselItems.map((_, i) => (
                   <span key={i} className={`h-2 w-2 rounded-full transition-all duration-300 ${i === currentSlide ? 'bg-[var(--purple)] w-4' : 'bg-gray-300'}`}></span>
@@ -218,7 +214,6 @@ function Landing() {
               </div>
             </div>
 
-            {/* Float Card Esquerda (Oculto em telas muito pequenas para não quebrar o layout) */}
             <div className="float-card float-card-1 animate-[fadeIn_0.5s_ease-in-out] hidden md:flex" key={`fl-${currentSlide}`}>
               <div className={`float-icon ${floatingStatsLeft[currentSlide].bg} flex items-center justify-center`}>
                 {floatingStatsLeft[currentSlide].icon}
@@ -229,7 +224,6 @@ function Landing() {
               </div>
             </div>
 
-            {/* Float Card Direita (Oculto em telas muito pequenas) */}
             <div className="float-card float-card-2 animate-[fadeIn_0.5s_ease-in-out] hidden md:flex" key={`fr-${currentSlide}`} style={{ top: '2rem', right: '-2.5rem', bottom: 'auto', left: 'auto' }}>
               <div className={`float-icon ${floatingStatsRight[currentSlide].bg} flex items-center justify-center`}>
                 {floatingStatsRight[currentSlide].icon}
@@ -245,7 +239,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          STORYTELLING: A JORNADA DE MÁRCIA
+          STORYTELLING
       ══════════════════════════════ */}
       <section id="historia" className="py-24 bg-white relative">
         <div className="container mx-auto px-6 max-w-6xl reveal">
@@ -290,7 +284,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          O PROBLEMA: O CAOS INFORMAL
+          O PROBLEMA
       ══════════════════════════════ */}
       <section className="problema py-24 bg-gray-50">
         <div className="container mx-auto px-6 max-w-6xl">
@@ -329,7 +323,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          A SOLUÇÃO: O MVP VIRLA (COM AVISOS DE SEGURANÇA E TAXAS)
+          A SOLUÇÃO
       ══════════════════════════════ */}
       <section id="solucao" className="solucao py-24 bg-[var(--surface-alt)] border-y border-[var(--border)]">
         <div className="container mx-auto px-6 max-w-6xl">
@@ -370,7 +364,6 @@ function Landing() {
                </div>
             </div>
 
-            {/* CARD DE PAGAMENTO REVISADO (TRANSPARÊNCIA E SEGURANÇA) */}
             <div className="bg-white p-8 rounded-3xl shadow-md border-2 border-pink-200 flex flex-col sm:flex-row gap-6 reveal reveal-delay-4 hover:-translate-y-1 transition-transform relative overflow-hidden">
                <div className="absolute top-0 right-0 w-24 h-24 bg-pink-50 rounded-bl-full -z-10"></div>
                <div className="flex-shrink-0 w-14 h-14 bg-pink-100 rounded-2xl flex items-center justify-center z-10">
@@ -441,7 +434,7 @@ function Landing() {
       </section>
 
       {/* ══════════════════════════════
-          LINHA DO TEMPO
+          LINHA DO TEMPO (Com Imagens Responsivas)
       ══════════════════════════════ */}
       <section id="trajetoria" className="py-24 bg-white">
         <div className="container mx-auto px-6 max-w-5xl reveal text-center">
@@ -501,9 +494,13 @@ function Landing() {
                   <p className={`${item.highlight ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>{item.desc}</p>
                 </div>
 
+                {/* AQUI ESTÁ A CORREÇÃO DE RESPONSIVIDADE!
+                  Substituí as classes antigas por `aspect-video`, `relative` e `absolute inset-0` 
+                  para garantir que as imagens nunca vazem ou distorçam no telemóvel. 
+                */}
                 {item.img && (
-                  <div className="w-full md:w-64 h-40 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-gray-200">
-                    <img src={item.img} alt={`Validação - ${item.title}`} className="w-full h-full object-cover" />
+                  <div className="w-full md:w-64 aspect-video md:aspect-auto md:h-40 rounded-xl overflow-hidden flex-shrink-0 shadow-sm border border-gray-200 relative bg-gray-200 mt-4 md:mt-0">
+                    <img src={item.img} alt={`Validação - ${item.title}`} className="absolute inset-0 w-full h-full object-cover object-center" />
                   </div>
                 )}
               </div>
@@ -521,7 +518,6 @@ function Landing() {
            <h2 className="section-title">O Time por trás da VIRLA</h2>
            <p className="section-subtitle mx-auto mb-16">Uma equipe multidisciplinar unida pelo propósito de transformar o cuidado no Brasil.</p>
 
-           {/* SÓCIOS */}
            <h3 className="text-2xl font-bold text-[var(--purple)] mb-8 text-left border-b-2 border-purple-100 pb-2">Sócios</h3>
            <div className="grid grid-cols-2 md:grid-cols-3 gap-6 md:gap-8 mb-16">
               {[
@@ -546,7 +542,6 @@ function Landing() {
               ))}
            </div>
 
-           {/* COLABORADORES */}
            <h3 className="text-2xl font-bold text-pink-500 mb-8 text-left border-b-2 border-pink-100 pb-2">Colaboradores de Tecnologia</h3>
            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
               {[
