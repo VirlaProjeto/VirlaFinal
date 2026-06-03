@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js'
+import { logger } from '../lib/logger.js'
 import { isValidObjectId } from '../utils/validation.js'
 import {
   releaseEscrowFunds,
@@ -13,7 +14,7 @@ function readIdempotencyKey(req) {
 function handleServiceError(res, err) {
   const status = err.statusCode ?? 500
   if (status >= 500) {
-    console.error('[escrowController]', err)
+    logger.error('escrow:operation_failed', { error: err.message, stack: err.stack })
   }
   return res.status(status).json({ msg: err.message })
 }
@@ -78,7 +79,7 @@ export const releaseFunds = async (req, res) => {
       readIdempotencyKey(req),
     )
 
-    return res.status(result.idempotent ? 200 : 200).json({
+    return res.status(200).json({
       ...result.body,
       idempotentReplay: result.idempotent,
     })

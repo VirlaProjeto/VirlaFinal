@@ -1,24 +1,7 @@
 import bcrypt from 'bcrypt'
 import prisma from '../lib/prisma.js'
-
-const USER_PUBLIC_SELECT = {
-  id: true,
-  name: true,
-  birthDate: true,
-  role: true,
-  bio: true,
-  email: true,
-  cpf: true,
-  profileImage: true,
-  crm_crf: true,
-  registerNumber: true,
-  hourlyRate: true,
-  specialties: true,
-  approach: true,
-  description: true,
-  city: true,
-  state: true,
-}
+import { authLogger, logger } from '../lib/logger.js'
+import { USER_PUBLIC_SELECT, USER_SELF_SELECT } from '../lib/userSelects.js'
 
 function parseBirthDate(value) {
   if (value == null || value === '') return null
@@ -112,19 +95,31 @@ const createUsers = async (req, res) => {
         city: emptyToNull(city),
         state: emptyToNull(state),
       },
-      select: USER_PUBLIC_SELECT,
+      select: USER_SELF_SELECT,
+    })
+    authLogger.info('auth:register_success', {
+      userId: user.id,
+      role: user.role,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
     })
     return res.status(201).json({ user })
   } catch (error) {
-    console.error(error)
     if (error.code === 'P2002') {
       return res.status(409).json({ msg: 'Este e-mail já está cadastrado' })
     }
+    logger.error('user:create_failed', {
+      error: error.message,
+      stack: error.stack,
+      endpoint: req.originalUrl,
+    })
     return res.status(500).json({ msg: 'Erro ao criar conta. Tente novamente.' })
   }
 }
 
 const getUsers = async (req, res) => {
+  // Rota administrativa/interna — protegida por checkToken.
+  // Usa o select público (sem email/cpf) para não expor PII em massa.
   const users = await prisma.user.findMany({ select: USER_PUBLIC_SELECT })
   res.status(200).send(users)
 }
@@ -169,12 +164,28 @@ const getFeedUsers = async (req, res) => {
       limit,
     })
   } catch (error) {
-    console.error(error)
+    logger.error('user:feed_failed', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.userId,
+      endpoint: req.originalUrl,
+    })
     res.status(500).json({ msg: 'Erro ao buscar o feed' })
   }
 }
 
 const updateUsers = async (req, res) => {
+  // Autorização (anti-IDOR): só o próprio dono pode editar seu cadastro.
+  if (req.userId !== req.params.id) {
+    authLogger.warn('user:update_forbidden', {
+      userId: req.userId,
+      targetId: req.params.id,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+    })
+    return res.status(403).json({ msg: 'Você só pode editar o próprio perfil.' })
+  }
+
   const birthDate = req.body.birthDate != null ? parseBirthDate(req.body.birthDate) : undefined
   if (req.body.birthDate != null && req.body.birthDate !== '' && birthDate === null) {
     return res.status(422).json({ msg: 'Data de nascimento inválida' })
@@ -205,23 +216,61 @@ const updateUsers = async (req, res) => {
     ...(req.body.state !== undefined && { state: req.body.state || null }),
   }
 
-  await prisma.user.update({
-    where: { id: req.params.id },
-    data,
-  })
+  try {
+    await prisma.user.update({
+      where: { id: req.params.id },
+      data,
+    })
 
-  const user = await prisma.user.findUnique({
-    where: { id: req.params.id },
-    select: USER_PUBLIC_SELECT,
-  })
-  res.status(200).json({ user })
+    const user = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: USER_SELF_SELECT,
+    })
+    res.status(200).json({ user })
+  } catch (error) {
+    if (error.code === 'P2002') {
+      return res.status(409).json({ msg: 'Este e-mail já está cadastrado' })
+    }
+    logger.error('user:update_failed', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.userId,
+      endpoint: req.originalUrl,
+    })
+    res.status(500).json({ msg: 'Erro ao atualizar perfil.' })
+  }
 }
 
 const deleteUsers = async (req, res) => {
-  await prisma.user.delete({
-    where: { id: req.params.id },
-  })
-  res.status(200).json({ message: 'Usuário deletado com sucesso' })
+  // Autorização (anti-IDOR): só o próprio dono pode excluir a conta.
+  if (req.userId !== req.params.id) {
+    authLogger.warn('user:delete_forbidden', {
+      userId: req.userId,
+      targetId: req.params.id,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+    })
+    return res.status(403).json({ msg: 'Você só pode excluir a própria conta.' })
+  }
+
+  try {
+    await prisma.user.delete({
+      where: { id: req.params.id },
+    })
+    authLogger.info('user:deleted', {
+      userId: req.userId,
+      timestamp: new Date().toISOString(),
+    })
+    res.status(200).json({ message: 'Usuário deletado com sucesso' })
+  } catch (error) {
+    logger.error('user:delete_failed', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.userId,
+      endpoint: req.originalUrl,
+    })
+    res.status(500).json({ msg: 'Erro ao excluir conta.' })
+  }
 }
 
 export { createUsers, getUsers, getFeedUsers, updateUsers, deleteUsers }

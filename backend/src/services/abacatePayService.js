@@ -1,6 +1,7 @@
 import dotenv from 'dotenv'
 import { stripCpf } from '../utils/cpf.js'
 import { isValidEmail } from '../utils/email.js'
+import { logger } from '../lib/logger.js'
 
 dotenv.config()
 
@@ -8,7 +9,7 @@ const ABACATEPAY_API_URL = 'https://api.abacatepay.com/v1'
 const API_TOKEN = process.env.ABACATEPAY_TOKEN
 
 if (!API_TOKEN) {
-  console.warn('[AbacatePay] ABACATEPAY_TOKEN não configurado.')
+  logger.warn('abacatepay:token_missing', { msg: 'ABACATEPAY_TOKEN não configurado.' })
 }
 
 function buildHeaders() {
@@ -42,7 +43,8 @@ export function validateTaxId(value) {
 
 async function abacatePost(path, body, label = path) {
   const url = `${ABACATEPAY_API_URL}${path}`
-  console.info(`[AbacatePay] -> ${label}`, JSON.stringify(body))
+  // Não logamos o corpo (contém PII: CPF, e-mail, nome) — apenas metadados.
+  logger.debug('abacatepay:request', { label, amount: body?.amount, products: body?.products?.length })
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 15_000)
@@ -54,7 +56,7 @@ async function abacatePost(path, body, label = path) {
       signal: controller.signal,
     })
     const data = await res.json().catch(() => ({}))
-    console.info(`[AbacatePay] <- ${label} HTTP ${res.status}`, JSON.stringify(data))
+    logger.info('abacatepay:response', { label, status: res.status, ok: res.ok })
     if (!res.ok) {
       const msg = data?.error ?? data?.message ?? data?.msg ?? `AbacatePay ${label} HTTP ${res.status}`
       const error = new Error(msg)
@@ -165,7 +167,7 @@ export async function createHostedBilling(params) {
   const externalId = `virla-${Date.now()}`
   const payload = buildBillingPayload({ ...params, externalId })
   const billing = await abacatePost('/billing/create', payload, 'billing/create')
-  console.info(`[AbacatePay] Cobrança registrada no painel: ${billing.id} (devMode=${billing.devMode ?? '?'})`)
+  logger.info('abacatepay:billing_created', { id: billing.id, devMode: billing.devMode ?? null })
   return billing
 }
 
@@ -176,7 +178,7 @@ export async function createPixQrCharge(params, { linkedBillingId } = {}) {
   }
   const payload = buildPixQrCodePayload({ ...params, metadata, expiresInSeconds: 300 })
   const pix = await abacatePost('/pixQrCode/create', payload, 'pixQrCode/create')
-  console.info(`[AbacatePay] PIX QR criado: ${pix.id} (devMode=${pix.devMode ?? '?'})`)
+  logger.info('abacatepay:pix_created', { id: pix.id, devMode: pix.devMode ?? null })
   return pix
 }
 
@@ -184,16 +186,12 @@ export async function createBilling(params) {
   const externalId = `virla-${Date.now()}`
 
   const hosted = await createHostedBilling({ ...params, externalId }).catch((err) => {
-    console.error('[AbacatePay] FALHA billing/create:', {
-      message: err.message,
-      status: err.status,
-      responseBody: err.responseBody,
-    })
+    logger.error('abacatepay:billing_create_failed', { error: err.message, status: err.status })
     throw err
   })
 
   const pix = await createPixQrCharge(params, { linkedBillingId: hosted.id }).catch((err) => {
-    console.error('[AbacatePay] FALHA pixQrCode/create:', { message: err.message, status: err.status })
+    logger.error('abacatepay:pix_create_failed', { error: err.message, status: err.status })
     throw err
   })
 
@@ -230,8 +228,8 @@ export async function getBillingStatus(billingId) {
     clearTimeout(timeoutId);
     
     if (err.name === 'AbortError') {
-      console.warn(`[AbacatePay] Timeout ao consultar status do PIX ${billingId}`);
-      return { status: 'PENDING', expiresAt: null }; 
+      logger.warn('abacatepay:status_timeout', { billingId });
+      return { status: 'PENDING', expiresAt: null };
     }
     
     throw err;

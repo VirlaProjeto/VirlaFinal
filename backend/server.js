@@ -11,7 +11,9 @@ import authRoutes from './src/routes/authRoutes.js'
 import messageRoutes from './src/routes/messageRoutes.js'
 import PaymentRoutes from './src/routes/paymentRoutes.js'
 
-import { logger } from './src/lib/logger.js'
+import { logger, securityLogger } from './src/lib/logger.js'
+import { requestLogger } from './src/middlewares/requestLogger.js'
+import { healthCheck, dashboard } from './src/controllers/observabilityController.js'
 import { socketAuthMiddleware, registerConnectionEvents } from './src/events/authEvents.js'
 import { registerMessageEvents } from './src/events/messageEvents.js'
 
@@ -54,6 +56,10 @@ function isOriginAllowed(origin) {
 // ─── Express app ─────────────────────────────────────────────────
 const app = express()
 
+// Atrás do proxy da Render: confia no primeiro hop para que req.ip reflita
+// o X-Forwarded-For real (essencial para rate limiting e logs de segurança).
+app.set('trust proxy', 1)
+
 // CORREÇÃO 2: Retornar 403 em vez de propagar erro para o handler global.
 // No original, `return callback(new Error(...))` enviava o erro para o
 // middleware de erro do Express, que respondia com HTTP 500 e logava um
@@ -65,7 +71,7 @@ app.use(cors({
     }
     // Retorna null (sem erro) + false: Express envia 403 automaticamente
     // sem poluir o logger de erros com falsos-positivos
-    logger.warn('cors:blocked', { origin })
+    securityLogger.warn('cors:blocked', { origin })
     return callback(null, false)
   },
   credentials: true,
@@ -78,18 +84,17 @@ app.use(cors({
 
 app.use(express.json({ limit: '4mb' }))
 
+// ─── Logging de requisições + métricas (observabilidade) ─────────
+app.use(requestLogger)
+
 // ─── Servir pasta uploads publicamente ───────────────────────────
 app.use('/uploads', express.static(path.resolve(__dirname, 'uploads')))
 
-// ─── Healthcheck ─────────────────────────────────────────────────
-// CORREÇÃO 4 (CRÍTICA para o 502): A Render usa este endpoint para checar
-// se o serviço está vivo. Sem ele, o health check pode bater em rotas
-// autenticadas, receber 401, e a Render interpretar como serviço degradado,
-// reiniciando o container no meio de uma request de pagamento — o que gera
-// exatamente o 502 que você está vendo no polling do AbacatePay.
-app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok', env: NODE_ENV, ts: Date.now() })
-})
+// ─── Healthcheck + Dashboard de observabilidade ──────────────────
+// CORREÇÃO 4 (CRÍTICA para o 502): A Render usa /health para checar se o
+// serviço está vivo. Agora ele também verifica banco, memória, CPU e APIs.
+app.get('/health', healthCheck)
+app.get('/observability/dashboard', dashboard)
 
 // ─── Rotas HTTP ──────────────────────────────────────────────────
 app.use(userRoutes)

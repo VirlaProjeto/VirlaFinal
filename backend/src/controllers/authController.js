@@ -1,31 +1,20 @@
 import bcrypt from 'bcrypt'
 import jwt from 'jsonwebtoken'
 import prisma from '../lib/prisma.js'
+import { authLogger, logger } from '../lib/logger.js'
+import { USER_PUBLIC_SELECT, USER_SELF_SELECT } from '../lib/userSelects.js'
 
-const USER_PUBLIC_SELECT = {
-  id: true,
-  name: true,
-  birthDate: true,
-  role: true,
-  bio: true,
-  email: true,
-  cpf: true,
-  profileImage: true,
-  crm_crf: true,
-  registerNumber: true,
-  hourlyRate: true,
-  specialties: true,
-  approach: true,
-  description: true,
-  city: true,
-  state: true,
-}
+/** Tempo de vida do token de sessão (configurável via env). */
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
 
 export const getUserById = async (req, res) => {
   try {
+    // PII (email/cpf) só é devolvido quando o usuário consulta o PRÓPRIO perfil.
+    // Para perfis de terceiros (feed, página de cuidador) usamos o select público.
+    const isSelf = req.userId === req.params.id
     const user = await prisma.user.findUnique({
       where: { id: req.params.id },
-      select: USER_PUBLIC_SELECT,
+      select: isSelf ? USER_SELF_SELECT : USER_PUBLIC_SELECT,
     })
 
     if (!user) {
@@ -34,7 +23,13 @@ export const getUserById = async (req, res) => {
 
     res.status(200).json({ user })
   } catch (error) {
-    console.error(error)
+    logger.error('user:get_by_id_failed', {
+      error: error.message,
+      stack: error.stack,
+      userId: req.userId,
+      targetId: req.params.id,
+      endpoint: req.originalUrl,
+    })
     res.status(500).json({ error: 'Erro interno ao buscar usuário' })
   }
 }
@@ -43,26 +38,45 @@ export const getUserById = async (req, res) => {
 const LoginUser = async (req, res) => {
   const { email, password } = req.body
 
-  const user = await prisma.user.findUnique({ where: { email } })
-  if (!user) {
-    return res.status(404).json({ msg: 'Usuário não encontrado' })
-  }
-
-  const checkPassword = await bcrypt.compare(password, user.password)
-  if (!checkPassword) {
-    return res.status(422).json({ msg: 'Senha inválida!' })
-  }
-
   try {
-    const token = jwt.sign({ id: user.id }, process.env.SECRET)
+    const user = await prisma.user.findUnique({ where: { email } })
+
+    // Resposta genérica idêntica para "usuário inexistente" e "senha errada":
+    // evita enumeração de contas (account enumeration).
+    const checkPassword = user ? await bcrypt.compare(password, user.password) : false
+    if (!user || !checkPassword) {
+      authLogger.warn('auth:login_failed', {
+        email,
+        ip: req.ip,
+        reason: user ? 'invalid_password' : 'user_not_found',
+        timestamp: new Date().toISOString(),
+      })
+      return res.status(401).json({ msg: 'Credenciais inválidas.' })
+    }
+
+    const token = jwt.sign({ id: user.id }, process.env.SECRET, {
+      expiresIn: JWT_EXPIRES_IN,
+    })
+
+    authLogger.info('auth:login_success', {
+      userId: user.id,
+      role: user.role,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+    })
+
     res.status(200).json({
       msg: 'Autenticação realizada com sucesso!',
       token,
       user: { id: user.id, name: user.name, role: user.role },
     })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ msg: 'Erro ao gerar token.' })
+    logger.error('auth:login_error', {
+      error: error.message,
+      stack: error.stack,
+      endpoint: req.originalUrl,
+    })
+    res.status(500).json({ msg: 'Erro ao realizar login.' })
   }
 }
 

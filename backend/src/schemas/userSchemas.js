@@ -31,6 +31,26 @@ export const profileImageSchema = z
     { message: 'Imagem inválida. Envie um arquivo de imagem.' },
   )
 
+/** Atualização de perfil — todos os campos opcionais (PATCH-like via PUT). */
+export const updateUserBodySchema = z
+  .object({
+    name: z.string().min(1).max(120).optional(),
+    birthDate: z.string().optional().nullable(),
+    bio: z.string().max(2000).optional(),
+    email: emailSchema.optional(),
+    profileImage: profileImageSchema,
+    crm_crf: z.string().max(80).optional().nullable(),
+    hourlyRate: z.union([z.number(), z.string()]).optional().nullable(),
+    registerNumber: z.string().max(80).optional().nullable(),
+    approach: z.string().max(200).optional().nullable(),
+    specialties: z.union([z.string(), z.array(z.string())]).optional().nullable(),
+    description: z.string().max(5000).optional().nullable(),
+    city: z.string().max(80).optional().nullable(),
+    state: z.string().max(2).optional().nullable(),
+  })
+  // Bloqueia campos sensíveis/imutáveis que não podem ser alterados por update.
+  .strict()
+
 export const createUserBodySchema = z.object({
   name: z.string().min(1, 'Nome é obrigatório.').max(120),
   birthDate: z.string().optional().nullable(),

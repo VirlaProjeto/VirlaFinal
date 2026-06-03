@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js'
+import { logger } from '../lib/logger.js'
 import { assertEscrowTransition, isTerminalEscrowStatus } from './escrowStateMachine.js'
 import { validateAmountCents, validateIdempotencyKey } from '../utils/validation.js'
 
@@ -270,9 +271,7 @@ async function transitionEscrowWithIdempotency({
     return { body, escrow: fresh, fromStatus }
   })
 
-  console.info(
-    `[escrow] ${operation} escrow=${escrowId} actor=${actorId} → ${targetStatus}`,
-  )
+  logger.info('escrow:transition', { operation, escrowId, actorId, targetStatus })
 
   return { idempotent: false, body: result.body }
 }

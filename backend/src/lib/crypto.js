@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import dotenv from 'dotenv'
+import { logger } from './logger.js'
 
 dotenv.config()
 
@@ -37,7 +38,7 @@ export const decrypt = (hash) => {
         decrypted += decipher.final('utf-8')
         return decrypted
     } catch (error) {
-        console.error("Erro ao descriptografar mensagem:", error)
+        logger.error('crypto:decrypt_failed', { error: error.message })
         return "Mensagem corrompida"
     }
 }

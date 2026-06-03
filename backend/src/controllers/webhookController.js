@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { processPaymentEvent } from '../services/paymentWebhookService.js'
+import { securityLogger, logger } from '../lib/logger.js'
 
 const WEBHOOK_SECRET = process.env.ABACATEPAY_WEBHOOK_SECRET ?? ''
 
@@ -12,10 +13,12 @@ const WEBHOOK_SECRET = process.env.ABACATEPAY_WEBHOOK_SECRET ?? ''
 function verifySignature(rawBody, signature) {
   if (!WEBHOOK_SECRET) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('[webhook] ABACATEPAY_WEBHOOK_SECRET não configurado em produção. Rejeitando.')
+      securityLogger.error('webhook:secret_missing', {
+        msg: 'ABACATEPAY_WEBHOOK_SECRET não configurado em produção — rejeitando.',
+      })
       return false
     }
-    console.warn('[webhook] Verificação de assinatura desativada (dev mode).')
+    securityLogger.warn('webhook:signature_check_disabled', { env: 'development' })
     return true
   }
 
@@ -48,7 +51,10 @@ export const handleAbacatePayWebhook = async (req, res) => {
   const signature = req.headers['x-abacatepay-signature'] ?? ''
 
   if (!verifySignature(rawBody, signature)) {
-    console.warn('[webhook] Assinatura inválida.')
+    securityLogger.warn('webhook:invalid_signature', {
+      ip: req.ip,
+      endpoint: req.originalUrl,
+    })
     return res.status(401).json({ msg: 'Assinatura inválida.' })
   }
 
@@ -56,7 +62,11 @@ export const handleAbacatePayWebhook = async (req, res) => {
     await processPaymentEvent(req.body)
     return res.status(200).json({ received: true })
   } catch (err) {
-    console.error('[webhook] Falha ao processar evento:', err)
+    logger.error('webhook:processing_failed', {
+      error: err.message,
+      stack: err.stack,
+      endpoint: req.originalUrl,
+    })
     return res.status(500).json({ msg: 'Erro ao processar webhook.' })
   }
 }

@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js'
+import { logger } from '../lib/logger.js'
 import { createBilling, getBillingStatus } from '../services/abacatePayService.js'
 import { createEscrowForPayment, holdEscrowFunds } from '../services/escrowService.js'
 import { validateAmountCents } from '../utils/validation.js'
@@ -68,7 +69,7 @@ export const initiateBilling = async (req, res) => {
         description: description ?? chargeRequest?.description ?? 'Serviço Virla',
       })
     } catch (err) {
-      console.error('[paymentController] Gateway error:', err.message)
+      logger.error('payment:gateway_error', { error: err.message, userId, endpoint: req.originalUrl })
       const isValidation =
         err.message.startsWith('CPF') ||
         err.message.startsWith('E-mail') ||
@@ -82,7 +83,11 @@ export const initiateBilling = async (req, res) => {
       const paymentRecord = await tx.payment.create({
         data: {
           billingId: billing.billingId,
-          gatewayBillingId: null,
+          // CORREÇÃO (webhook): persistir o ID da cobrança HOSPEDADA (bill_*).
+          // O webhook `billing.paid` do AbacatePay referencia esse ID, não o
+          // pix_char_* do QR Code. Antes era `null`, então o webhook nunca
+          // encontrava o pagamento e o status ficava preso em PENDING.
+          gatewayBillingId: billing.gatewayBillingId ?? null,
           userId,
           amount: amountCheck.amount,
           status: 'PENDING',
@@ -115,12 +120,16 @@ export const initiateBilling = async (req, res) => {
       chargeRequestId: chargeRequest?.id ?? null,
     })
   } catch (err) {
-    console.error('[paymentController] initiateBilling:', err)
+    logger.error('payment:initiate_failed', { error: err.message, stack: err.stack, userId: req.userId, endpoint: req.originalUrl })
     return res.status(500).json({ msg: 'Erro interno ao iniciar pagamento.' })
   }
 }
 
 export const pollBillingStatus = async (req, res) => {
+  // CORREÇÃO (304): status de pagamento é volátil e precisa ser sempre fresco.
+  // Sem isso, o ETag do Express devolve 304 Not Modified enquanto o corpo não
+  // muda, e o frontend fica "vendo" o estado PENDING antigo no polling.
+  res.set('Cache-Control', 'no-store')
   try {
     const { billingId } = req.params
 
@@ -152,7 +161,7 @@ export const pollBillingStatus = async (req, res) => {
     try {
       billing = await getBillingStatus(billingId);
     } catch (apiError) {
-      console.warn(`[Pagamento] Falha na API externa para o PIX ${billingId}:`, apiError.message);
+      logger.warn('payment:status_gateway_unavailable', { billingId, error: apiError.message });
       // Degradação graciosa: Se a API falhar ou der timeout, mantemos o status atual (PENDING)
       return res.status(200).json({
         status: payment.status,
@@ -193,7 +202,7 @@ export const pollBillingStatus = async (req, res) => {
       expiresAt: billing.expiresAt ?? null,
     })
   } catch (err) {
-    console.error('[paymentController] pollBillingStatus:', err.message)
+    logger.error('payment:poll_failed', { error: err.message, stack: err.stack, userId: req.userId, endpoint: req.originalUrl })
     return res.status(500).json({ msg: 'Erro ao consultar status.' })
   }
 }

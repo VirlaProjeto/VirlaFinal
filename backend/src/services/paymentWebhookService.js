@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js'
+import { logger } from '../lib/logger.js'
 import { holdEscrowFunds } from './escrowService.js'
 import { markChargePaidForPayment } from './chargeRequestService.js'
 
@@ -37,13 +38,21 @@ export async function processPaymentEvent(event) {
   const eventType = event?.event ?? event?.type ?? ''
   const billingId = extractBillingId(event)
 
-  if (!PAID_EVENT_TYPES.has(eventType)) {
-    console.info(`[webhook] Evento ignorado: "${eventType}"`)
+  // Detecta pagamento por NOME do evento OU pelo STATUS no payload.
+  // Fallback de status evita falso positivo de sucesso (HTTP 200 sem ação)
+  // quando o AbacatePay envia um nome de evento fora da lista conhecida.
+  const data = event?.data ?? event
+  const statusPaid =
+    String(data?.status ?? data?.billing?.status ?? data?.pixQrCode?.status ?? '')
+      .toUpperCase() === 'PAID'
+
+  if (!PAID_EVENT_TYPES.has(eventType) && !statusPaid) {
+    logger.info('webhook:event_ignored', { eventType })
     return { handled: false }
   }
 
   if (!billingId || typeof billingId !== 'string') {
-    console.error('[webhook] Evento PAID sem billingId.')
+    logger.error('webhook:paid_without_billing_id', { eventType })
     return { handled: false }
   }
 
@@ -60,12 +69,12 @@ export async function processPaymentEvent(event) {
       where: { OR: [{ billingId }, { gatewayBillingId: billingId }] },
     })
     if (!existing) {
-      console.error(`[webhook] Pagamento "${billingId}" não encontrado no banco.`)
+      logger.error('webhook:payment_not_found', { billingId })
       return { handled: false, billingId }
     }
-    console.info(`[webhook] Pagamento "${billingId}" já PAID — idempotente.`)
+    logger.info('webhook:payment_already_paid', { billingId })
   } else {
-    console.info(`[webhook] Pagamento "${billingId}" marcado como PAID.`)
+    logger.info('webhook:payment_marked_paid', { billingId })
   }
 
   const payment = await prisma.payment.findFirst({
@@ -74,7 +83,7 @@ export async function processPaymentEvent(event) {
   })
 
   if (!payment?.escrow) {
-    console.warn(`[webhook] Sem custódia para billing "${billingId}".`)
+    logger.warn('webhook:no_escrow_for_billing', { billingId })
     return { handled: true, billingId }
   }
 
@@ -83,11 +92,9 @@ export async function processPaymentEvent(event) {
   const holdResult = await holdEscrowFunds(payment.id)
 
   if (holdResult.updated) {
-    console.info(
-      `[webhook] Escrow ${holdResult.escrow.id} → HELD (billing="${billingId}").`,
-    )
+    logger.info('webhook:escrow_held', { escrowId: holdResult.escrow.id, billingId })
   } else {
-    console.info(`[webhook] Escrow hold skip: ${holdResult.reason}`)
+    logger.info('webhook:escrow_hold_skipped', { reason: holdResult.reason, billingId })
   }
 
   return { handled: true, billingId }

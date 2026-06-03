@@ -1,6 +1,7 @@
 import prisma from '../lib/prisma.js'
 // IMPORTAMOS O NOSSO CADEADO:
 import { encrypt, decrypt } from '../lib/crypto.js'
+import { messageLogger } from '../lib/logger.js'
 
 /** POST body: { receiverId, content } — sender is req.userId from JWT */
 export const sendMessage = async (req, res) => {
@@ -44,7 +45,7 @@ export const sendMessage = async (req, res) => {
 
         res.status(201).json({ message })
     } catch (e) {
-        console.error(e)
+        messageLogger.error('message:send_failed', { error: e.message, stack: e.stack, userId: req.userId, endpoint: req.originalUrl })
         res.status(500).json({ msg: "Erro ao enviar mensagem" })
     }
 }
@@ -80,7 +81,7 @@ export const sendAudioMessage = async (req, res) => {
 
         res.status(201).json({ message })
     } catch (e) {
-        console.error("Erro ao fazer upload do áudio:", e)
+        messageLogger.error('message:audio_upload_failed', { error: e.message, stack: e.stack, userId: req.userId, endpoint: req.originalUrl })
         res.status(500).json({ msg: "Erro ao enviar mensagem de áudio" })
     }
 }
@@ -123,7 +124,7 @@ export const getMessageHistory = async (req, res) => {
         res.status(200).json({ peer: other, messages: decryptedMessages })
     } catch (e) {
         const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
-        console.error(e)
+        messageLogger.error('message:history_failed', { error: e.message, stack: e.stack, userId: req.userId, dbDown, endpoint: req.originalUrl })
         res.status(dbDown ? 503 : 500).json({
             msg: dbDown ? 'Não foi possível conectar ao banco de dados...' : 'Erro ao buscar mensagens',
         })
@@ -165,7 +166,7 @@ export const getConversations = async (req, res) => {
         res.status(200).json({ conversations })
     } catch (e) {
         const dbDown = e?.name === 'PrismaClientInitializationError' || String(e?.message ?? '').includes('DNS')
-        console.error(e)
+        messageLogger.error('message:conversations_failed', { error: e.message, stack: e.stack, userId: req.userId, dbDown, endpoint: req.originalUrl })
         res.status(dbDown ? 503 : 500).json({
             msg: dbDown ? 'Não foi possível conectar ao banco de dados...' : 'Erro ao listar conversas',
         })
@@ -180,6 +181,7 @@ export const getUnreadCount = async (req, res) => {
         })
         res.status(200).json({ count })
     } catch (e) {
+        messageLogger.error('message:unread_count_failed', { error: e.message, stack: e.stack, userId: req.userId })
         res.status(500).json({ msg: "Erro ao buscar notificações" })
     }
 }
@@ -194,6 +196,7 @@ export const markAsRead = async (req, res) => {
         })
         res.status(200).json({ msg: "Mensagens lidas" })
     } catch (e) {
+        messageLogger.error('message:mark_read_failed', { error: e.message, stack: e.stack, userId: req.userId })
         res.status(500).json({ msg: "Erro ao marcar como lida" })
     }
 }

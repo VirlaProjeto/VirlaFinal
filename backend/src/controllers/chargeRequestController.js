@@ -1,4 +1,5 @@
 import prisma from '../lib/prisma.js'
+import { logger } from '../lib/logger.js'
 import { calculateChargeTotalCents } from '../utils/paymentFees.js'
 /**
  * POST /payments/charge-requests
@@ -54,7 +55,7 @@ export const createChargeRequest = async (req, res) => {
       status: charge.status,
     })
   } catch (err) {
-    console.error('[chargeRequestController] createChargeRequest:', err)
+    logger.error('charge:create_failed', { error: err.message, stack: err.stack, userId: req.userId, endpoint: req.originalUrl })
     return res.status(500).json({ msg: 'Erro ao gerar cobrança.' })
   }
 }
@@ -115,7 +116,7 @@ export const getPendingChargeWithPeer = async (req, res) => {
       },
     })
   } catch (err) {
-    console.error('[chargeRequestController] getPendingChargeWithPeer:', err)
+    logger.error('charge:get_pending_failed', { error: err.message, stack: err.stack, userId: req.userId, endpoint: req.originalUrl })
     return res.status(500).json({ msg: 'Erro ao buscar cobrança pendente.' })
   }
 }
